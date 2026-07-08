@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -14,20 +13,12 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-ID_NAME_PATTERNS = {
-    "id",
-    "uid",
-    "uuid",
-    "key",
-    "identifier",
-    "user_id",
-    "customer_id",
-    "record_id",
-    "transaction_id",
-    "order_id",
-    "account_id",
-    "student_id",
-    "employee_id",
+SEVERITY_RANK = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
 }
 
 
@@ -36,7 +27,7 @@ def validate_inputs(df: pd.DataFrame, target_column: str) -> None:
     Validate inputs for data quality audit.
     """
     if df is None or df.empty:
-        raise DataQualityError("Dataset is empty.")
+        raise DataQualityError("Input dataframe is empty.")
 
     if target_column is None or str(target_column).strip() == "":
         raise InvalidTargetColumnError("Target column is required.")
@@ -46,229 +37,509 @@ def validate_inputs(df: pd.DataFrame, target_column: str) -> None:
             f"Target column '{target_column}' not found in dataset."
         )
 
-    if len(df.columns) != len(set(df.columns)):
-        raise DataQualityError("Dataset contains duplicate column names.")
+    if len(df.columns) <= 1:
+        raise DataQualityError("Dataset must contain at least one feature column.")
 
 
-def get_memory_usage_mb(df: pd.DataFrame) -> float:
+def get_thresholds() -> dict[str, float]:
     """
-    Return dataframe memory usage in MB.
+    Read thresholds from config.yaml.
     """
-    memory_bytes = df.memory_usage(deep=True).sum()
-    return float(round(memory_bytes / (1024 * 1024), 4))
-
-
-def find_missing_values(df: pd.DataFrame) -> dict[str, Any]:
-    """
-    Find missing value count and percentage for columns with missing values.
-    """
-    missing_count = df.isna().sum()
-    missing_percent = (missing_count / len(df) * 100).round(2)
-
     return {
-        column: {
-            "missing_count": int(missing_count[column]),
-            "missing_percent": float(missing_percent[column]),
-        }
-        for column in df.columns
-        if missing_count[column] > 0
+        "high_missing_threshold": float(
+            get_config_value("audit.high_missing_threshold", 50)
+        ),
+        "warning_missing_threshold": float(
+            get_config_value("missing_values.warning_threshold", 20)
+        ),
+        "high_cardinality_threshold": float(
+            get_config_value("audit.high_cardinality_threshold", 50)
+        ),
+        "id_unique_percent_threshold": float(
+            get_config_value("audit.id_unique_percent_threshold", 95)
+        ),
+        "near_constant_threshold": float(
+            get_config_value("audit.near_constant_threshold", 95)
+        ),
+        "rare_value_threshold_percent": float(
+            get_config_value("data_quality.rare_value_threshold_percent", 1)
+        ),
+        "iqr_multiplier": float(get_config_value("outliers.iqr_multiplier", 1.5)),
     }
 
 
-def find_high_missing_columns(
-    df: pd.DataFrame,
-    threshold: float,
-) -> list[dict[str, Any]]:
+def safe_percent(numerator: float, denominator: float) -> float:
     """
-    Find columns whose missing percentage is above configured threshold.
+    Safe percentage calculation.
     """
-    missing_percent = (df.isna().mean() * 100).round(2)
+    if denominator == 0:
+        return 0.0
 
-    return [
+    return round((numerator / denominator) * 100, 2)
+
+
+def add_finding(
+    findings: list[dict[str, Any]],
+    severity: str,
+    category: str,
+    message: str,
+    column: str | None = None,
+    evidence: dict[str, Any] | None = None,
+    recommendation: str | None = None,
+) -> None:
+    """
+    Add a standardized finding.
+    """
+    findings.append(
         {
+            "severity": severity,
+            "category": category,
             "column": column,
-            "missing_percent": float(percent),
-            "threshold": float(threshold),
+            "message": message,
+            "evidence": evidence or {},
+            "recommendation": recommendation,
+            "requires_human_review": severity in {"critical", "high", "medium"},
         }
-        for column, percent in missing_percent.items()
-        if percent >= threshold
-    ]
+    )
 
 
-def find_null_only_columns(df: pd.DataFrame) -> list[str]:
+def sort_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Find columns containing only missing values.
+    Sort findings by severity.
     """
-    return [column for column in df.columns if df[column].isna().all()]
+    return sorted(
+        findings,
+        key=lambda item: SEVERITY_RANK.get(str(item.get("severity", "info")), 99),
+    )
 
 
-def find_constant_columns(df: pd.DataFrame) -> list[str]:
-    """
-    Find columns with only one unique value, including missing values.
-    """
-    return [
-        column
-        for column in df.columns
-        if df[column].nunique(dropna=False) <= 1
-    ]
-
-
-def find_near_constant_columns(
+def analyze_missing_values(
     df: pd.DataFrame,
-    dominance_threshold: float,
-) -> list[dict[str, Any]]:
+    target_column: str,
+    thresholds: dict[str, float],
+    findings: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     """
-    Find columns where one value dominates the column.
+    Analyze missing values for all columns.
     """
-    results: list[dict[str, Any]] = []
+    missing_values: dict[str, dict[str, Any]] = {}
 
     for column in df.columns:
-        value_percent = df[column].value_counts(normalize=True, dropna=False).mul(100)
+        missing_count = int(df[column].isna().sum())
+        missing_percent = safe_percent(missing_count, len(df))
 
-        if value_percent.empty:
+        if missing_count > 0:
+            missing_values[column] = {
+                "missing_count": missing_count,
+                "missing_percent": missing_percent,
+            }
+
+        if column == target_column:
+            if missing_percent > 0:
+                add_finding(
+                    findings=findings,
+                    severity="high",
+                    category="target_missing_values",
+                    column=column,
+                    message=(
+                        f"Target column has {missing_percent}% missing values. "
+                        "Rows with missing target cannot be used for supervised training."
+                    ),
+                    evidence={
+                        "missing_count": missing_count,
+                        "missing_percent": missing_percent,
+                    },
+                    recommendation="Drop rows with missing target before model training.",
+                )
             continue
 
-        top_value = value_percent.index[0]
-        top_percent = float(round(value_percent.iloc[0], 2))
-        unique_values = int(df[column].nunique(dropna=False))
-
-        if top_percent >= dominance_threshold and unique_values > 1:
-            results.append(
-                {
-                    "column": column,
-                    "dominant_value": str(top_value),
-                    "dominant_value_percent": top_percent,
-                    "unique_values": unique_values,
-                    "threshold": float(dominance_threshold),
-                }
+        if missing_percent >= thresholds["high_missing_threshold"]:
+            add_finding(
+                findings=findings,
+                severity="high",
+                category="high_missing_values",
+                column=column,
+                message=f"Column has high missing values: {missing_percent}%.",
+                evidence={
+                    "missing_count": missing_count,
+                    "missing_percent": missing_percent,
+                },
+                recommendation=(
+                    "Review whether this feature is useful. Consider dropping it "
+                    "or using domain-specific imputation."
+                ),
             )
 
-    return results
+        elif missing_percent >= thresholds["warning_missing_threshold"]:
+            add_finding(
+                findings=findings,
+                severity="medium",
+                category="moderate_missing_values",
+                column=column,
+                message=f"Column has moderate missing values: {missing_percent}%.",
+                evidence={
+                    "missing_count": missing_count,
+                    "missing_percent": missing_percent,
+                },
+                recommendation="Use appropriate imputation and monitor missingness pattern.",
+            )
+
+    return missing_values
 
 
-def find_high_cardinality_columns(
+def detect_duplicate_rows(
     df: pd.DataFrame,
-    threshold: int,
+    findings: list[dict[str, Any]],
+) -> int:
+    """
+    Detect duplicate rows.
+    """
+    duplicate_rows = int(df.duplicated().sum())
+    duplicate_percent = safe_percent(duplicate_rows, len(df))
+
+    if duplicate_rows > 0:
+        severity = "medium" if duplicate_percent < 5 else "high"
+        add_finding(
+            findings=findings,
+            severity=severity,
+            category="duplicate_rows",
+            message=f"Dataset contains {duplicate_rows} duplicate rows ({duplicate_percent}%).",
+            evidence={
+                "duplicate_rows": duplicate_rows,
+                "duplicate_percent": duplicate_percent,
+            },
+            recommendation="Review duplicates and remove them if they are not valid repeated observations.",
+        )
+
+    return duplicate_rows
+
+
+def detect_duplicate_columns(
+    df: pd.DataFrame,
+    findings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Find categorical columns with many unique values.
+    Detect duplicate columns by exact value equality.
     """
-    categorical_columns = df.select_dtypes(
-        include=["object", "string", "category"]
-    ).columns
+    duplicate_columns: list[dict[str, Any]] = []
+    columns = list(df.columns)
 
-    results: list[dict[str, Any]] = []
+    for i, col_a in enumerate(columns):
+        for col_b in columns[i + 1:]:
+            try:
+                if df[col_a].equals(df[col_b]):
+                    record = {
+                        "column_a": col_a,
+                        "column_b": col_b,
+                    }
+                    duplicate_columns.append(record)
+                    add_finding(
+                        findings=findings,
+                        severity="medium",
+                        category="duplicate_columns",
+                        column=col_b,
+                        message=f"Column '{col_b}' is an exact duplicate of '{col_a}'.",
+                        evidence=record,
+                        recommendation="Drop one of the duplicate columns before modeling.",
+                    )
+            except Exception:
+                continue
+
+    return duplicate_columns
+
+
+def detect_constant_columns(
+    df: pd.DataFrame,
+    target_column: str,
+    findings: list[dict[str, Any]],
+) -> list[str]:
+    """
+    Detect constant feature columns.
+    """
+    constant_columns: list[str] = []
+
+    for column in df.columns:
+        if column == target_column:
+            continue
+
+        unique_count = int(df[column].nunique(dropna=False))
+
+        if unique_count <= 1:
+            constant_columns.append(column)
+            add_finding(
+                findings=findings,
+                severity="medium",
+                category="constant_column",
+                column=column,
+                message="Column has only one unique value and provides no predictive signal.",
+                evidence={"unique_count": unique_count},
+                recommendation="Drop this column before training.",
+            )
+
+    return constant_columns
+
+
+def detect_near_constant_columns(
+    df: pd.DataFrame,
+    target_column: str,
+    thresholds: dict[str, float],
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Detect near-constant feature columns.
+    """
+    near_constant_columns: list[dict[str, Any]] = []
+
+    for column in df.columns:
+        if column == target_column:
+            continue
+
+        value_counts = df[column].value_counts(dropna=False)
+
+        if value_counts.empty:
+            continue
+
+        dominant_count = int(value_counts.iloc[0])
+        dominant_percent = safe_percent(dominant_count, len(df))
+
+        if dominant_percent >= thresholds["near_constant_threshold"]:
+            record = {
+                "column": column,
+                "dominant_value": str(value_counts.index[0]),
+                "dominant_count": dominant_count,
+                "dominant_percent": dominant_percent,
+            }
+            near_constant_columns.append(record)
+            add_finding(
+                findings=findings,
+                severity="low",
+                category="near_constant_column",
+                column=column,
+                message=f"Column is near-constant. Dominant value appears in {dominant_percent}% rows.",
+                evidence=record,
+                recommendation="Review usefulness; near-constant columns often add little signal.",
+            )
+
+    return near_constant_columns
+
+
+def detect_high_cardinality_columns(
+    df: pd.DataFrame,
+    target_column: str,
+    thresholds: dict[str, float],
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Detect high-cardinality categorical columns.
+    """
+    high_cardinality_columns: list[dict[str, Any]] = []
+
+    feature_df = df.drop(columns=[target_column])
+
+    categorical_columns = feature_df.select_dtypes(
+        include=["object", "category", "string"]
+    ).columns
 
     for column in categorical_columns:
         unique_count = int(df[column].nunique(dropna=True))
-        unique_percent = float(round(unique_count / len(df) * 100, 2))
+        unique_percent = safe_percent(unique_count, len(df))
 
-        if unique_count >= threshold:
-            results.append(
-                {
-                    "column": column,
-                    "unique_values": unique_count,
-                    "unique_percent": unique_percent,
-                    "threshold": int(threshold),
-                }
+        if unique_count >= thresholds["high_cardinality_threshold"]:
+            record = {
+                "column": column,
+                "unique_count": unique_count,
+                "unique_percent": unique_percent,
+            }
+            high_cardinality_columns.append(record)
+
+            severity = (
+                "high"
+                if unique_percent >= thresholds["id_unique_percent_threshold"]
+                else "medium"
             )
 
-    return results
+            add_finding(
+                findings=findings,
+                severity=severity,
+                category="high_cardinality_column",
+                column=column,
+                message=(
+                    f"Column has high cardinality: {unique_count} unique values "
+                    f"({unique_percent}%)."
+                ),
+                evidence=record,
+                recommendation=(
+                    "Avoid naive one-hot encoding if cardinality is high. "
+                    "Consider dropping ID-like columns or using target-independent encodings."
+                ),
+            )
+
+    return high_cardinality_columns
 
 
-def get_id_reason(name_looks_like_id: bool, almost_all_unique: bool) -> str:
-    if name_looks_like_id and almost_all_unique:
-        return "Column name looks like an ID and most values are unique."
-
-    if name_looks_like_id:
-        return "Column name looks like an ID."
-
-    return "Most values are unique, so this may behave like an ID column."
-
-
-def find_possible_id_columns(
+def detect_possible_id_columns(
     df: pd.DataFrame,
-    unique_percent_threshold: float,
+    target_column: str,
+    thresholds: dict[str, float],
+    findings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Find columns that look like identifiers by name or uniqueness.
+    Detect possible ID/identifier columns.
     """
     possible_id_columns: list[dict[str, Any]] = []
 
-    for column in df.columns:
-        column_lower = str(column).lower().strip()
-        unique_count = int(df[column].nunique(dropna=True))
-        non_null_count = int(df[column].notna().sum())
+    id_keywords = {
+        "id",
+        "uuid",
+        "guid",
+        "identifier",
+        "serial",
+        "roll",
+        "roll_no",
+        "zipcode",
+        "zip",
+        "phone",
+        "mobile",
+        "email",
+    }
 
-        if non_null_count == 0:
+    for column in df.columns:
+        if column == target_column:
             continue
 
-        unique_percent = float(round(unique_count / non_null_count * 100, 2))
+        column_lower = str(column).lower().strip()
+        unique_count = int(df[column].nunique(dropna=True))
+        unique_percent = safe_percent(unique_count, len(df))
 
-        name_looks_like_id = (
-            column_lower in ID_NAME_PATTERNS
-            or column_lower.endswith("_id")
-            or column_lower.endswith("id")
-            or column_lower.startswith("id_")
-            or "uuid" in column_lower
-        )
+        name_suggests_id = any(keyword in column_lower for keyword in id_keywords)
+        uniqueness_suggests_id = unique_percent >= thresholds["id_unique_percent_threshold"]
 
-        almost_all_unique = unique_percent >= unique_percent_threshold
-
-        if name_looks_like_id or almost_all_unique:
-            possible_id_columns.append(
-                {
-                    "column": column,
-                    "unique_values": unique_count,
-                    "non_null_count": non_null_count,
-                    "unique_percent": unique_percent,
-                    "name_looks_like_id": bool(name_looks_like_id),
-                    "almost_all_unique": bool(almost_all_unique),
-                    "threshold": float(unique_percent_threshold),
-                    "reason": get_id_reason(name_looks_like_id, almost_all_unique),
-                }
+        if name_suggests_id or uniqueness_suggests_id:
+            record = {
+                "column": column,
+                "unique_count": unique_count,
+                "unique_percent": unique_percent,
+                "name_suggests_id": name_suggests_id,
+                "uniqueness_suggests_id": uniqueness_suggests_id,
+            }
+            possible_id_columns.append(record)
+            add_finding(
+                findings=findings,
+                severity="high" if uniqueness_suggests_id else "medium",
+                category="possible_id_column",
+                column=column,
+                message="Column may be an identifier and can cause memorization or high-dimensional noise.",
+                evidence=record,
+                recommendation=(
+                    "Review this column. Drop it unless it has a legitimate, prediction-time meaning."
+                ),
             )
 
     return possible_id_columns
 
 
-def find_infinite_values(df: pd.DataFrame) -> dict[str, Any]:
-    """
-    Find positive/negative infinity values in numeric columns.
-    """
-    numeric_df = df.select_dtypes(include=["number"])
-
-    if numeric_df.empty:
-        return {}
-
-    inf_mask = np.isinf(numeric_df.to_numpy(dtype=float, copy=True))
-    inf_df = pd.DataFrame(inf_mask, columns=numeric_df.columns, index=numeric_df.index)
-    inf_count = inf_df.sum()
-
-    return {
-        column: {
-            "infinite_count": int(inf_count[column]),
-            "infinite_percent": float(round(inf_count[column] / len(df) * 100, 2)),
-        }
-        for column in numeric_df.columns
-        if inf_count[column] > 0
-    }
-
-
-def find_outlier_columns_iqr(
+def detect_mixed_type_columns(
     df: pd.DataFrame,
-    multiplier: float,
+    target_column: str,
+    findings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Detect numeric columns with IQR-based outliers.
+    Detect object columns with mixed Python value types.
     """
-    numeric_df = df.select_dtypes(include=["number"])
-    results: list[dict[str, Any]] = []
+    mixed_type_columns: list[dict[str, Any]] = []
 
-    for column in numeric_df.columns:
-        series = numeric_df[column].replace([np.inf, -np.inf], np.nan).dropna()
+    object_columns = df.select_dtypes(include=["object"]).columns
 
-        if series.empty or series.nunique(dropna=True) < 2:
+    for column in object_columns:
+        if column == target_column:
+            continue
+
+        type_counts = (
+            df[column]
+            .dropna()
+            .map(lambda value: type(value).__name__)
+            .value_counts()
+            .to_dict()
+        )
+
+        if len(type_counts) > 1:
+            record = {
+                "column": column,
+                "type_counts": {str(key): int(value) for key, value in type_counts.items()},
+            }
+            mixed_type_columns.append(record)
+            add_finding(
+                findings=findings,
+                severity="medium",
+                category="mixed_type_column",
+                column=column,
+                message="Column contains mixed Python value types.",
+                evidence=record,
+                recommendation="Standardize this column before modeling.",
+            )
+
+    return mixed_type_columns
+
+
+def detect_infinite_values(
+    df: pd.DataFrame,
+    target_column: str,
+    findings: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """
+    Detect np.inf and -np.inf in numeric columns.
+    """
+    infinite_values: dict[str, dict[str, Any]] = {}
+
+    numeric_columns = df.select_dtypes(include=["number"]).columns
+
+    for column in numeric_columns:
+        series = df[column]
+        pos_inf_count = int(np.isposinf(series).sum())
+        neg_inf_count = int(np.isneginf(series).sum())
+        total_inf_count = pos_inf_count + neg_inf_count
+
+        if total_inf_count > 0:
+            record = {
+                "positive_infinity_count": pos_inf_count,
+                "negative_infinity_count": neg_inf_count,
+                "total_infinity_count": total_inf_count,
+            }
+            infinite_values[column] = record
+            severity = "high" if column == target_column else "medium"
+            add_finding(
+                findings=findings,
+                severity=severity,
+                category="infinite_values",
+                column=column,
+                message="Column contains infinite values that can break preprocessing/model training.",
+                evidence=record,
+                recommendation="Replace infinite values with NaN before imputation/modeling.",
+            )
+
+    return infinite_values
+
+
+def detect_outlier_columns(
+    df: pd.DataFrame,
+    target_column: str,
+    thresholds: dict[str, float],
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Detect numeric outliers using IQR.
+    """
+    if not bool(get_config_value("outliers.enabled", True)):
+        return []
+
+    outlier_columns: list[dict[str, Any]] = []
+
+    numeric_columns = df.drop(columns=[target_column]).select_dtypes(include=["number"]).columns
+
+    for column in numeric_columns:
+        series = df[column].replace([np.inf, -np.inf], np.nan).dropna()
+
+        if series.empty or series.nunique() <= 1:
             continue
 
         q1 = float(series.quantile(0.25))
@@ -278,252 +549,116 @@ def find_outlier_columns_iqr(
         if iqr == 0:
             continue
 
-        lower_bound = q1 - multiplier * iqr
-        upper_bound = q3 + multiplier * iqr
+        lower_bound = q1 - thresholds["iqr_multiplier"] * iqr
+        upper_bound = q3 + thresholds["iqr_multiplier"] * iqr
 
         outlier_mask = (series < lower_bound) | (series > upper_bound)
         outlier_count = int(outlier_mask.sum())
+        outlier_percent = safe_percent(outlier_count, len(series))
 
         if outlier_count > 0:
-            results.append(
-                {
-                    "column": column,
-                    "outlier_count": outlier_count,
-                    "outlier_percent": float(round(outlier_count / len(series) * 100, 2)),
-                    "q1": float(round(q1, 4)),
-                    "q3": float(round(q3, 4)),
-                    "iqr": float(round(iqr, 4)),
-                    "lower_bound": float(round(lower_bound, 4)),
-                    "upper_bound": float(round(upper_bound, 4)),
-                    "method": "iqr",
-                    "iqr_multiplier": float(multiplier),
-                }
+            record = {
+                "column": column,
+                "outlier_count": outlier_count,
+                "outlier_percent": outlier_percent,
+                "lower_bound": round(float(lower_bound), 4),
+                "upper_bound": round(float(upper_bound), 4),
+                "method": "iqr",
+            }
+            outlier_columns.append(record)
+
+            severity = "medium" if outlier_percent >= 5 else "low"
+            add_finding(
+                findings=findings,
+                severity=severity,
+                category="outliers",
+                column=column,
+                message=f"Column has {outlier_count} possible IQR outliers ({outlier_percent}%).",
+                evidence=record,
+                recommendation=(
+                    "Review outliers. Do not remove automatically unless domain context supports it."
+                ),
             )
 
-    return results
+    return outlier_columns
 
 
-def detect_datetime_like_columns(df: pd.DataFrame) -> list[str]:
-    """
-    Detect datetime-like object columns.
-    """
-    datetime_columns: list[str] = []
-
-    for column in df.columns:
-        series = df[column]
-
-        if pd.api.types.is_datetime64_any_dtype(series):
-            datetime_columns.append(column)
-            continue
-
-        if not pd.api.types.is_object_dtype(series):
-            continue
-
-        sample = series.dropna().astype(str).head(100)
-
-        if sample.empty:
-            continue
-
-        parsed = pd.to_datetime(sample, errors="coerce", format="mixed")
-        valid_ratio = float(parsed.notna().mean())
-
-        if valid_ratio >= 0.8:
-            datetime_columns.append(column)
-
-    return datetime_columns
-
-
-def get_datetime_quality(
+def analyze_target_quality(
     df: pd.DataFrame,
-    datetime_columns: list[str],
+    target_column: str,
+    findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Return datetime parsing quality and min/max dates.
-    """
-    results: dict[str, Any] = {}
-
-    for column in datetime_columns:
-        parsed = pd.to_datetime(df[column], errors="coerce", format="mixed")
-        valid_count = int(parsed.notna().sum())
-
-        results[column] = {
-            "valid_datetime_count": valid_count,
-            "valid_datetime_percent": float(round(parsed.notna().mean() * 100, 2)),
-            "invalid_or_missing_count": int(parsed.isna().sum()),
-            "min_date": str(parsed.min()) if valid_count else None,
-            "max_date": str(parsed.max()) if valid_count else None,
-        }
-
-    return results
-
-
-def find_mixed_type_columns(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """
-    Detect object columns that contain mixed Python value types.
-    """
-    results: list[dict[str, Any]] = []
-
-    object_columns = df.select_dtypes(include=["object", "string"]).columns
-
-    for column in object_columns:
-        non_null = df[column].dropna()
-
-        if non_null.empty:
-            continue
-
-        type_counts = non_null.map(lambda value: type(value).__name__).value_counts()
-
-        if len(type_counts) > 1:
-            results.append(
-                {
-                    "column": column,
-                    "types": {
-                        str(type_name): int(count)
-                        for type_name, count in type_counts.items()
-                    },
-                    "reason": "Column contains multiple Python value types.",
-                }
-            )
-
-    return results
-
-
-def get_boolean_quality(df: pd.DataFrame) -> dict[str, Any]:
-    """
-    Summarize boolean columns.
-    """
-    bool_columns = df.select_dtypes(include=["bool"]).columns
-    results: dict[str, Any] = {}
-
-    for column in bool_columns:
-        counts = df[column].value_counts(dropna=False)
-        percentages = df[column].value_counts(dropna=False, normalize=True).mul(100).round(2)
-
-        results[column] = {
-            str(value): {
-                "count": int(counts[value]),
-                "percent": float(percentages[value]),
-            }
-            for value in counts.index
-        }
-
-    return results
-
-
-def get_target_quality_summary(df: pd.DataFrame, target_column: str) -> dict[str, Any]:
-    """
-    Summarize target quality.
+    Analyze target column quality.
     """
     target = df[target_column]
+    missing_count = int(target.isna().sum())
+    missing_percent = safe_percent(missing_count, len(df))
+    unique_count = int(target.nunique(dropna=True))
 
-    return {
+    target_quality = {
         "target_column": target_column,
-        "missing_count": int(target.isna().sum()),
-        "missing_percent": float(round(target.isna().mean() * 100, 2)),
-        "unique_values": int(target.nunique(dropna=True)),
         "dtype": str(target.dtype),
+        "missing_count": missing_count,
+        "missing_percent": missing_percent,
+        "unique_count": unique_count,
+        "is_numeric": bool(pd.api.types.is_numeric_dtype(target)),
     }
 
+    if unique_count < 2:
+        add_finding(
+            findings=findings,
+            severity="critical",
+            category="invalid_target",
+            column=target_column,
+            message="Target column has fewer than 2 unique non-null values.",
+            evidence=target_quality,
+            recommendation="Choose a valid target column with at least 2 classes/values.",
+        )
 
-def calculate_quality_score(
-    high_missing_columns: list[dict[str, Any]],
-    duplicate_rows_percent: float,
-    constant_columns: list[str],
-    near_constant_columns: list[dict[str, Any]],
-    high_cardinality_columns: list[dict[str, Any]],
-    possible_id_columns: list[dict[str, Any]],
-    infinite_values: dict[str, Any],
-    null_only_columns: list[str],
-    outlier_columns: list[dict[str, Any]],
-    target_quality: dict[str, Any],
-) -> dict[str, Any]:
+    return target_quality
+
+
+def calculate_quality_score(findings: list[dict[str, Any]]) -> dict[str, Any]:
     """
-    Calculate a simple audit health score from 0 to 100.
+    Calculate quality score from findings.
+
+    This is a triage score, not a statistical guarantee.
     """
     score = 100.0
+
+    penalty_map = {
+        "critical": 35,
+        "high": 15,
+        "medium": 7,
+        "low": 2,
+        "info": 0,
+    }
+
     penalties: list[dict[str, Any]] = []
 
-    def apply_penalty(name: str, value: float, reason: str) -> None:
-        nonlocal score
-        score -= value
+    for finding in findings:
+        severity = str(finding.get("severity", "info")).lower()
+        penalty = penalty_map.get(severity, 0)
+
+        if penalty <= 0:
+            continue
+
+        score -= penalty
         penalties.append(
             {
-                "check": name,
-                "penalty": float(round(value, 2)),
-                "reason": reason,
+                "category": finding.get("category"),
+                "column": finding.get("column"),
+                "severity": severity,
+                "penalty": penalty,
             }
-        )
-
-    if target_quality.get("missing_count", 0) > 0:
-        apply_penalty("target_missing", 15, "Target column contains missing values.")
-
-    if target_quality.get("unique_values", 0) < 2:
-        apply_penalty("target_unique_values", 30, "Target has fewer than 2 unique values.")
-
-    if null_only_columns:
-        apply_penalty("null_only_columns", min(20, len(null_only_columns) * 5), "Null-only columns found.")
-
-    if high_missing_columns:
-        apply_penalty(
-            "high_missing_columns",
-            min(20, len(high_missing_columns) * 4),
-            "High-missing columns found.",
-        )
-
-    if duplicate_rows_percent > 0:
-        apply_penalty(
-            "duplicate_rows",
-            min(15, duplicate_rows_percent / 2),
-            "Duplicate rows found.",
-        )
-
-    if constant_columns:
-        apply_penalty(
-            "constant_columns",
-            min(15, len(constant_columns) * 3),
-            "Constant columns found.",
-        )
-
-    if near_constant_columns:
-        apply_penalty(
-            "near_constant_columns",
-            min(10, len(near_constant_columns) * 2),
-            "Near-constant columns found.",
-        )
-
-    if high_cardinality_columns:
-        apply_penalty(
-            "high_cardinality_columns",
-            min(10, len(high_cardinality_columns) * 2),
-            "High-cardinality categorical columns found.",
-        )
-
-    if possible_id_columns:
-        apply_penalty(
-            "possible_id_columns",
-            min(10, len(possible_id_columns) * 2),
-            "Possible ID-like columns found.",
-        )
-
-    if infinite_values:
-        apply_penalty(
-            "infinite_values",
-            min(10, len(infinite_values) * 3),
-            "Infinite numeric values found.",
-        )
-
-    if outlier_columns:
-        apply_penalty(
-            "outlier_columns",
-            min(8, len(outlier_columns)),
-            "IQR outlier columns found.",
         )
 
     final_score = max(0.0, min(100.0, score))
 
-    if final_score >= 85:
+    if final_score >= 90:
         health_label = "good"
-    elif final_score >= 70:
+    elif final_score >= 75:
         health_label = "needs_review"
     elif final_score >= 50:
         health_label = "poor"
@@ -531,300 +666,174 @@ def calculate_quality_score(
         health_label = "critical"
 
     return {
-        "score": float(round(final_score, 2)),
+        "score": round(final_score, 2),
         "health_label": health_label,
         "penalties": penalties,
+        "note": "Quality score is a practical triage score, not a guarantee of model readiness.",
     }
 
 
-def generate_quality_warnings(
-    missing_values: dict[str, Any],
-    high_missing_columns: list[dict[str, Any]],
-    duplicate_rows: int,
-    constant_columns: list[str],
-    near_constant_columns: list[dict[str, Any]],
-    high_cardinality_columns: list[dict[str, Any]],
-    possible_id_columns: list[dict[str, Any]],
-    infinite_values: dict[str, Any],
-    null_only_columns: list[str],
-    outlier_columns: list[dict[str, Any]],
-    mixed_type_columns: list[dict[str, Any]],
-    target_quality: dict[str, Any],
-) -> list[str]:
+def generate_warnings(findings: list[dict[str, Any]]) -> list[str]:
     """
-    Generate human-readable data quality warnings.
+    Generate human-readable warnings.
     """
+    if not findings:
+        return ["No major basic data quality issues detected."]
+
     warnings: list[str] = []
 
-    if target_quality.get("missing_count", 0) > 0:
-        warnings.append("Target column contains missing values.")
+    for finding in sort_findings(findings):
+        severity = str(finding.get("severity", "info")).upper()
+        column = finding.get("column")
+        message = finding.get("message")
 
-    if target_quality.get("unique_values", 0) < 2:
-        warnings.append("Target column has fewer than 2 unique values.")
-
-    if missing_values:
-        warnings.append("Feature columns contain missing values.")
-
-    if high_missing_columns:
-        warnings.append("Some feature columns have very high missing percentages.")
-
-    if null_only_columns:
-        warnings.append("Some feature columns contain only missing values.")
-
-    if duplicate_rows > 0:
-        warnings.append("Dataset contains duplicate rows.")
-
-    if constant_columns:
-        warnings.append("Some feature columns have only one unique value.")
-
-    if near_constant_columns:
-        warnings.append("Some feature columns are near-constant.")
-
-    if high_cardinality_columns:
-        warnings.append(
-            "Some categorical feature columns have high cardinality and may need careful encoding."
-        )
-
-    if possible_id_columns:
-        warnings.append(
-            "Some feature columns look like ID columns and should usually not be used for modeling."
-        )
-
-    if infinite_values:
-        warnings.append("Some numeric feature columns contain infinite values.")
-
-    if outlier_columns:
-        warnings.append("Some numeric feature columns contain IQR-based outliers.")
-
-    if mixed_type_columns:
-        warnings.append("Some object columns contain mixed Python value types.")
-
-    if not warnings:
-        warnings.append("No major basic data quality issues detected.")
+        if column:
+            warnings.append(f"[{severity}] {column}: {message}")
+        else:
+            warnings.append(f"[{severity}] {message}")
 
     return warnings
 
 
-def generate_recommended_actions(
-    high_missing_columns: list[dict[str, Any]],
-    duplicate_rows: int,
-    constant_columns: list[str],
-    near_constant_columns: list[dict[str, Any]],
-    high_cardinality_columns: list[dict[str, Any]],
-    possible_id_columns: list[dict[str, Any]],
-    infinite_values: dict[str, Any],
-    null_only_columns: list[str],
-    outlier_columns: list[dict[str, Any]],
-    mixed_type_columns: list[dict[str, Any]],
-    target_quality: dict[str, Any],
-) -> list[str]:
+def generate_recommended_actions(findings: list[dict[str, Any]]) -> list[str]:
     """
-    Generate practical recommended actions.
+    Generate deduplicated recommended actions.
     """
     actions: list[str] = []
 
-    if target_quality.get("missing_count", 0) > 0:
-        actions.append("Remove rows with missing target values before training.")
-
-    if target_quality.get("unique_values", 0) < 2:
-        actions.append("Choose a target column with at least 2 unique values.")
-
-    if null_only_columns:
-        actions.append("Drop columns that contain only missing values.")
-
-    if high_missing_columns:
-        actions.append("Review high-missing columns before imputation or dropping.")
-
-    if duplicate_rows > 0:
-        actions.append("Check whether duplicate rows are valid or should be removed.")
-
-    if constant_columns:
-        actions.append("Drop constant feature columns before model training.")
-
-    if near_constant_columns:
-        actions.append("Review near-constant columns because they may add little signal.")
-
-    if high_cardinality_columns:
-        actions.append("Use careful encoding for high-cardinality categorical columns.")
-
-    if possible_id_columns:
-        actions.append(
-            "Exclude ID-like columns from modeling unless they have real predictive meaning."
-        )
-
-    if infinite_values:
-        actions.append("Replace infinite values with NaN and handle them during preprocessing.")
-
-    if outlier_columns:
-        actions.append("Review outliers and decide whether to cap, transform, or keep them.")
-
-    if mixed_type_columns:
-        actions.append("Standardize mixed-type columns before preprocessing.")
+    for finding in sort_findings(findings):
+        recommendation = finding.get("recommendation")
+        if recommendation and recommendation not in actions:
+            actions.append(str(recommendation))
 
     if not actions:
-        actions.append("Proceed to leakage detection and baseline modeling.")
+        return ["No major data quality preprocessing action required."]
 
     return actions
 
 
-def run_data_quality_audit(df: pd.DataFrame, target_column: str) -> dict[str, Any]:
+def build_column_quality_summary(
+    df: pd.DataFrame,
+    target_column: str,
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
-    Run deterministic data quality checks before model training.
+    Build column-wise quality summary.
+    """
+    finding_count_by_column: dict[str, int] = {}
+
+    for finding in findings:
+        column = finding.get("column")
+        if column:
+            finding_count_by_column[str(column)] = finding_count_by_column.get(str(column), 0) + 1
+
+    summary: list[dict[str, Any]] = []
+
+    for column in df.columns:
+        summary.append(
+            {
+                "column": column,
+                "dtype": str(df[column].dtype),
+                "is_target": column == target_column,
+                "missing_count": int(df[column].isna().sum()),
+                "missing_percent": safe_percent(int(df[column].isna().sum()), len(df)),
+                "unique_count": int(df[column].nunique(dropna=True)),
+                "unique_percent": safe_percent(int(df[column].nunique(dropna=True)), len(df)),
+                "finding_count": finding_count_by_column.get(column, 0),
+            }
+        )
+
+    return summary
+
+
+def run_data_quality_audit(
+    df: pd.DataFrame,
+    target_column: str,
+) -> dict[str, Any]:
+    """
+    Run deterministic data quality audit.
+
+    This module reports data quality risks only. It does not automatically mutate data.
     """
     try:
         logger.info("Starting data quality audit")
 
         validate_inputs(df, target_column)
 
-        high_missing_threshold = float(
-            get_config_value("audit.high_missing_threshold", 50)
-        )
-        high_cardinality_threshold = int(
-            get_config_value("audit.high_cardinality_threshold", 50)
-        )
-        id_unique_percent_threshold = float(
-            get_config_value("audit.id_unique_percent_threshold", 95)
-        )
-        near_constant_threshold = float(
-            get_config_value("audit.near_constant_threshold", 95)
-        )
+        thresholds = get_thresholds()
+        findings: list[dict[str, Any]] = []
 
-        outliers_enabled = bool(get_config_value("outliers.enabled", True))
-        iqr_multiplier = float(get_config_value("outliers.iqr_multiplier", 1.5))
-
-        feature_df = df.drop(columns=[target_column])
-
-        target_quality = get_target_quality_summary(df, target_column)
-        missing_values = find_missing_values(feature_df)
-
-        high_missing_columns = find_high_missing_columns(
-            feature_df,
-            threshold=high_missing_threshold,
+        target_quality = analyze_target_quality(df, target_column, findings)
+        missing_values = analyze_missing_values(df, target_column, thresholds, findings)
+        duplicate_rows = detect_duplicate_rows(df, findings)
+        duplicate_columns = detect_duplicate_columns(df, findings)
+        constant_columns = detect_constant_columns(df, target_column, findings)
+        near_constant_columns = detect_near_constant_columns(
+            df, target_column, thresholds, findings
+        )
+        high_cardinality_columns = detect_high_cardinality_columns(
+            df, target_column, thresholds, findings
+        )
+        possible_id_columns = detect_possible_id_columns(
+            df, target_column, thresholds, findings
+        )
+        mixed_type_columns = detect_mixed_type_columns(df, target_column, findings)
+        infinite_values = detect_infinite_values(df, target_column, findings)
+        outlier_columns = detect_outlier_columns(
+            df, target_column, thresholds, findings
         )
 
-        null_only_columns = find_null_only_columns(feature_df)
+        null_only_columns = [
+            column
+            for column, values in missing_values.items()
+            if values["missing_percent"] == 100
+        ]
 
-        duplicate_rows = int(df.duplicated().sum())
-        duplicate_rows_percent = float(round(df.duplicated().mean() * 100, 2))
+        high_missing_columns = [
+            {
+                "column": column,
+                **values,
+            }
+            for column, values in missing_values.items()
+            if values["missing_percent"] >= thresholds["high_missing_threshold"]
+        ]
 
-        constant_columns = find_constant_columns(feature_df)
-
-        near_constant_columns = find_near_constant_columns(
-            feature_df,
-            dominance_threshold=near_constant_threshold,
-        )
-
-        high_cardinality_columns = find_high_cardinality_columns(
-            feature_df,
-            threshold=high_cardinality_threshold,
-        )
-
-        possible_id_columns = find_possible_id_columns(
-            feature_df,
-            unique_percent_threshold=id_unique_percent_threshold,
-        )
-
-        infinite_values = find_infinite_values(feature_df)
-
-        outlier_columns = (
-            find_outlier_columns_iqr(feature_df, multiplier=iqr_multiplier)
-            if outliers_enabled
-            else []
-        )
-
-        datetime_columns = detect_datetime_like_columns(feature_df)
-        datetime_quality = get_datetime_quality(feature_df, datetime_columns)
-
-        mixed_type_columns = find_mixed_type_columns(feature_df)
-        boolean_quality = get_boolean_quality(feature_df)
-
-        warnings = generate_quality_warnings(
-            missing_values=missing_values,
-            high_missing_columns=high_missing_columns,
-            duplicate_rows=duplicate_rows,
-            constant_columns=constant_columns,
-            near_constant_columns=near_constant_columns,
-            high_cardinality_columns=high_cardinality_columns,
-            possible_id_columns=possible_id_columns,
-            infinite_values=infinite_values,
-            null_only_columns=null_only_columns,
-            outlier_columns=outlier_columns,
-            mixed_type_columns=mixed_type_columns,
-            target_quality=target_quality,
-        )
-
-        recommended_actions = generate_recommended_actions(
-            high_missing_columns=high_missing_columns,
-            duplicate_rows=duplicate_rows,
-            constant_columns=constant_columns,
-            near_constant_columns=near_constant_columns,
-            high_cardinality_columns=high_cardinality_columns,
-            possible_id_columns=possible_id_columns,
-            infinite_values=infinite_values,
-            null_only_columns=null_only_columns,
-            outlier_columns=outlier_columns,
-            mixed_type_columns=mixed_type_columns,
-            target_quality=target_quality,
-        )
-
-        quality_score = calculate_quality_score(
-            high_missing_columns=high_missing_columns,
-            duplicate_rows_percent=duplicate_rows_percent,
-            constant_columns=constant_columns,
-            near_constant_columns=near_constant_columns,
-            high_cardinality_columns=high_cardinality_columns,
-            possible_id_columns=possible_id_columns,
-            infinite_values=infinite_values,
-            null_only_columns=null_only_columns,
-            outlier_columns=outlier_columns,
-            target_quality=target_quality,
+        sorted_findings = sort_findings(findings)
+        quality_score = calculate_quality_score(sorted_findings)
+        warnings = generate_warnings(sorted_findings)
+        recommended_actions = generate_recommended_actions(sorted_findings)
+        column_quality_summary = build_column_quality_summary(
+            df, target_column, sorted_findings
         )
 
         report: dict[str, Any] = {
-            "metadata": {
-                "generated_at": datetime.now().isoformat(timespec="seconds"),
-                "audit_module": "data_quality",
-            },
-            "total_rows": int(df.shape[0]),
-            "total_columns": int(df.shape[1]),
-            "feature_columns": int(feature_df.shape[1]),
             "target_column": target_column,
-            "memory_usage_mb": get_memory_usage_mb(df),
-            "thresholds": {
-                "high_missing_threshold": high_missing_threshold,
-                "high_cardinality_threshold": high_cardinality_threshold,
-                "id_unique_percent_threshold": id_unique_percent_threshold,
-                "near_constant_threshold": near_constant_threshold,
-                "outliers_enabled": outliers_enabled,
-                "iqr_multiplier": iqr_multiplier,
-            },
+            "total_rows": int(len(df)),
+            "total_columns": int(len(df.columns)),
             "quality_score": quality_score,
             "target_quality": target_quality,
+            "duplicate_rows": duplicate_rows,
+            "duplicate_row_percent": safe_percent(duplicate_rows, len(df)),
+            "duplicate_columns": duplicate_columns,
             "missing_values": missing_values,
             "high_missing_columns": high_missing_columns,
             "null_only_columns": null_only_columns,
-            "duplicate_rows": duplicate_rows,
-            "duplicate_rows_percent": duplicate_rows_percent,
             "constant_columns": constant_columns,
             "near_constant_columns": near_constant_columns,
             "high_cardinality_columns": high_cardinality_columns,
             "possible_id_columns": possible_id_columns,
+            "mixed_type_columns": mixed_type_columns,
             "infinite_values": infinite_values,
             "outlier_columns": outlier_columns,
-            "datetime_columns": datetime_columns,
-            "datetime_quality": datetime_quality,
-            "mixed_type_columns": mixed_type_columns,
-            "boolean_quality": boolean_quality,
+            "findings": sorted_findings,
+            "column_quality_summary": column_quality_summary,
             "warnings": warnings,
             "recommended_actions": recommended_actions,
+            "thresholds": thresholds,
+            "message": "Data quality audit completed successfully.",
         }
 
-        logger.info(
-            "Data quality audit completed. Score=%s Health=%s",
-            quality_score["score"],
-            quality_score["health_label"],
-        )
-
+        logger.info("Data quality audit completed successfully")
         return report
 
     except (DataQualityError, InvalidTargetColumnError):
@@ -839,12 +848,15 @@ def run_data_quality_audit(df: pd.DataFrame, target_column: str) -> dict[str, An
 
 
 if __name__ == "__main__":
-    from src.audit.profiler import load_dataset
+    sample_df = pd.DataFrame(
+        {
+            "student_id": [1, 2, 3, 4, 5, 5],
+            "age": [18, 19, 20, np.inf, 22, 22],
+            "gender": ["M", "F", "M", None, "F", "F"],
+            "constant_col": ["x", "x", "x", "x", "x", "x"],
+            "grade": ["A", "B", "A", "B", "A", "A"],
+        }
+    )
 
-    dataset_path = "data/sample/student_mark.csv"
-    target_column = "Grade"
-
-    df = load_dataset(dataset_path)
-    quality_report = run_data_quality_audit(df, target_column)
-
-    print(quality_report)
+    output = run_data_quality_audit(sample_df, "grade")
+    print(output)

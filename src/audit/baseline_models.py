@@ -18,7 +18,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
@@ -58,8 +58,8 @@ def train_baseline_models(
 
     Important:
     - trained_model_objects is intentionally returned for MLflow/explainability.
-    - sample_features is intentionally returned for explainability.
-    - API/UI layers should remove these non-serializable/heavy objects before response/download.
+    - runtime_objects is intentionally returned for explainability.
+    - API/UI layers must strip these non-serializable/heavy objects before responses.
     """
     try:
         logger.info("Starting baseline model training")
@@ -72,7 +72,7 @@ def train_baseline_models(
         enable_cross_validation = as_bool(
             get_config_value("modeling.enable_cross_validation", False)
         )
-        cv_folds = int(get_config_value("modeling.cv_folds", 5))
+        requested_cv_folds = int(get_config_value("modeling.cv_folds", 5))
 
         if normalized_problem_type == "regression":
             validate_regression_target(df[target_column])
@@ -92,17 +92,33 @@ def train_baseline_models(
             random_state=random_state,
         )
 
-        label_encoder = None
+        label_encoder: LabelEncoder | None = None
         class_labels: list[str] = []
 
         if normalized_problem_type in CLASSIFICATION_TYPES:
             label_encoder = LabelEncoder()
-            y_train_model = label_encoder.fit_transform(y_train.astype(str))
-            y_test_model = label_encoder.transform(y_test.astype(str))
+            y_train_model = np.asarray(label_encoder.fit_transform(y_train.astype(str)))
+            y_test_model = np.asarray(label_encoder.transform(y_test.astype(str)))
             class_labels = [str(label) for label in label_encoder.classes_]
         else:
-            y_train_model = y_train
-            y_test_model = y_test
+            y_train_model = np.asarray(y_train, dtype=float)
+            y_test_model = np.asarray(y_test, dtype=float)
+
+        safe_cv = get_safe_cv_splitter(
+            y=y_train_model,
+            problem_type=normalized_problem_type,
+            requested_folds=requested_cv_folds,
+            random_state=random_state,
+        )
+
+        cv_warning = None
+
+        if enable_cross_validation and safe_cv is None:
+            cv_warning = (
+                "Cross-validation skipped because there are not enough samples "
+                "per class/fold for a reliable split."
+            )
+            logger.warning(cv_warning)
 
         models = get_baseline_models(normalized_problem_type, random_state)
 
@@ -119,14 +135,14 @@ def train_baseline_models(
             )
 
             pipeline.fit(X_train, y_train_model)
-            y_pred = pipeline.predict(X_test)
+            y_pred = np.asarray(pipeline.predict(X_test))
 
             if normalized_problem_type in CLASSIFICATION_TYPES:
                 metrics = evaluate_classification(
                     model=pipeline,
                     X_test=X_test,
-                    y_test=np.asarray(y_test_model),
-                    y_pred=np.asarray(y_pred),
+                    y_test=y_test_model,
+                    y_pred=y_pred,
                     problem_type=normalized_problem_type,
                 )
 
@@ -135,7 +151,7 @@ def train_baseline_models(
             elif normalized_problem_type == "regression":
                 metrics = evaluate_regression(
                     y_test=y_test_model,
-                    y_pred=np.asarray(y_pred),
+                    y_pred=y_pred,
                 )
                 confusion = None
 
@@ -144,13 +160,13 @@ def train_baseline_models(
                     f"Unsupported problem type: {normalized_problem_type}"
                 )
 
-            if enable_cross_validation:
+            if enable_cross_validation and safe_cv is not None:
                 cv_results = run_cross_validation(
                     pipeline=pipeline,
                     X=X_train,
                     y=y_train_model,
                     problem_type=normalized_problem_type,
-                    cv_folds=cv_folds,
+                    cv=safe_cv,
                 )
                 metrics.update(cv_results)
 
@@ -194,8 +210,14 @@ def train_baseline_models(
             "evaluation_details": {
                 "test_size": test_size,
                 "random_state": random_state,
-                "cross_validation_enabled": enable_cross_validation,
-                "cv_folds": cv_folds if enable_cross_validation else None,
+                "cross_validation_enabled": bool(
+                    enable_cross_validation and safe_cv is not None
+                ),
+                "requested_cv_folds": requested_cv_folds,
+                "actual_cv_folds": getattr(safe_cv, "n_splits", None)
+                if enable_cross_validation and safe_cv is not None
+                else None,
+                "cv_warning": cv_warning,
                 "class_labels": class_labels,
                 "label_encoder_used": label_encoder is not None,
                 "train_shape": tuple(X_train.shape),
@@ -246,7 +268,10 @@ def validate_inputs(df: pd.DataFrame, target_column: str, problem_type: str) -> 
 
     normalized_problem_type = problem_type.lower().strip()
 
-    if normalized_problem_type not in CLASSIFICATION_TYPES and normalized_problem_type != "regression":
+    if (
+        normalized_problem_type not in CLASSIFICATION_TYPES
+        and normalized_problem_type != "regression"
+    ):
         raise ModelTrainingError(f"Unsupported problem type: {normalized_problem_type}")
 
     if df[target_column].dropna().nunique() < 2:
@@ -374,26 +399,27 @@ def evaluate_classification(
     return metrics
 
 
-def evaluate_regression(y_test: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
+def evaluate_regression(y_test: Any, y_pred: np.ndarray) -> dict[str, float]:
     """
     Evaluate regression baseline.
     """
-    mse = mean_squared_error(y_test, y_pred)
+    y_test_array = np.asarray(y_test, dtype=float)
+    y_pred_array = np.asarray(y_pred, dtype=float)
+
+    mse = mean_squared_error(y_test_array, y_pred_array)
     rmse = float(np.sqrt(mse))
 
     metrics = {
-        "mae": round(float(mean_absolute_error(y_test, y_pred)), 4),
+        "mae": round(float(mean_absolute_error(y_test_array, y_pred_array)), 4),
         "mse": round(float(mse), 4),
         "rmse": round(rmse, 4),
-        "r2_score": round(float(r2_score(y_test, y_pred)), 4),
+        "r2_score": round(float(r2_score(y_test_array, y_pred_array)), 4),
     }
 
     try:
-        y_test_array = np.asarray(y_test)
-        y_pred_array = np.asarray(y_pred)
         non_zero_mask = y_test_array != 0
 
-        if non_zero_mask.sum() > 0:
+        if int(non_zero_mask.sum()) > 0:
             mape = (
                 np.mean(
                     np.abs(
@@ -411,30 +437,70 @@ def evaluate_regression(y_test: pd.Series, y_pred: np.ndarray) -> dict[str, floa
     return metrics
 
 
+def get_safe_cv_splitter(
+    y: Any,
+    problem_type: str,
+    requested_folds: int,
+    random_state: int,
+) -> KFold | StratifiedKFold | None:
+    """
+    Build a safe CV splitter.
+
+    Classification folds are capped by minority-class count to avoid
+    invalid or unstable StratifiedKFold splits.
+    """
+    if requested_folds < 2:
+        return None
+
+    if problem_type in CLASSIFICATION_TYPES:
+        y_series = pd.Series(np.asarray(y))
+        class_counts = y_series.value_counts(dropna=False)
+
+        if class_counts.empty:
+            return None
+
+        min_class_count = int(class_counts.min())
+        safe_folds = min(int(requested_folds), min_class_count)
+
+        if safe_folds < 2:
+            return None
+
+        return StratifiedKFold(
+            n_splits=safe_folds,
+            shuffle=True,
+            random_state=random_state,
+        )
+
+    return KFold(
+        n_splits=int(requested_folds),
+        shuffle=True,
+        random_state=random_state,
+    )
+
+
 def run_cross_validation(
     pipeline: Pipeline,
     X: pd.DataFrame,
     y: Any,
     problem_type: str,
-    cv_folds: int,
+    cv: KFold | StratifiedKFold,
 ) -> dict[str, float]:
     """
     Run optional cross-validation on training data.
     """
     try:
-        if cv_folds < 2:
-            return {}
-
         if problem_type in CLASSIFICATION_TYPES:
-            scoring = str(get_config_value("metrics.classification_default", "f1_weighted"))
+            scoring = str(
+                get_config_value("metrics.classification_default", "f1_weighted")
+            )
         else:
             scoring = "neg_root_mean_squared_error"
 
         scores = cross_val_score(
             pipeline,
             X,
-            y,
-            cv=cv_folds,
+            np.asarray(y),
+            cv=cv,
             scoring=scoring,
             n_jobs=int(get_config_value("performance.parallel_jobs", -1)),
         )
@@ -457,7 +523,9 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
     Select best baseline model using config-driven metric.
     """
     if problem_type in CLASSIFICATION_TYPES:
-        primary_metric = str(get_config_value("metrics.classification_default", "f1_score"))
+        primary_metric = str(
+            get_config_value("metrics.classification_default", "f1_score")
+        )
 
         if primary_metric == "f1_weighted":
             primary_metric = "f1_score"
@@ -471,14 +539,16 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
             primary_metric = "rmse"
             higher_is_better = False
 
-    best_model_name = None
-    best_score = None
+    best_model_name: str | None = None
+    best_score: float | None = None
 
     for model_name, model_result in results.items():
-        score = model_result["metrics"].get(primary_metric)
+        raw_score = model_result["metrics"].get(primary_metric)
 
-        if score is None:
+        if raw_score is None:
             continue
+
+        score = float(raw_score)
 
         if best_score is None:
             best_model_name = model_name
@@ -493,7 +563,7 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
             best_model_name = model_name
             best_score = score
 
-    if best_model_name is None:
+    if best_model_name is None or best_score is None:
         raise ModelTrainingError("Could not select best baseline model.")
 
     return {
@@ -511,6 +581,9 @@ def get_sample_features_for_explainability(
     Extract sample features from baseline output for explainability.
     """
     runtime_objects = baseline_results.get("runtime_objects", {})
+
+    if not isinstance(runtime_objects, dict):
+        return None
 
     sample_features = runtime_objects.get("sample_features")
 
