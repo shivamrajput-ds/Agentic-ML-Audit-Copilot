@@ -1,9 +1,9 @@
+from __future__ import annotations
+
+
 class AuditCopilotException(Exception):
     """
     Base exception for Agentic ML Audit Copilot.
-
-    Use this for project-specific errors instead of raising
-    generic exceptions across modules.
     """
 
     def __init__(self, message: str, error_detail: str | None = None):
@@ -17,6 +17,13 @@ class AuditCopilotException(Exception):
         )
 
         super().__init__(full_message)
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "error_type": self.__class__.__name__,
+            "message": self.message,
+            "error_detail": self.error_detail,
+        }
 
 
 class InvalidDatasetError(AuditCopilotException):
@@ -43,6 +50,10 @@ class MetricRecommendationError(AuditCopilotException):
     """Raised when metric recommendation fails unexpectedly."""
 
 
+class ClassImbalanceError(AuditCopilotException):
+    """Raised when class imbalance detection fails unexpectedly."""
+
+
 class PreprocessingError(AuditCopilotException):
     """Raised when preprocessing pipeline creation or transformation fails."""
 
@@ -56,7 +67,7 @@ class MLflowTrackingError(AuditCopilotException):
 
 
 class ReportGenerationError(AuditCopilotException):
-    """Raised when audit report generation fails."""
+    """Raised when audit report generation or saving fails."""
 
 
 class AgentWorkflowError(AuditCopilotException):

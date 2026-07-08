@@ -1,9 +1,13 @@
-from datetime import datetime
-from typing import Any, Optional
+from __future__ import annotations
 
-import pandas as pd
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 import mlflow
 import mlflow.sklearn
+import pandas as pd
 from mlflow.models import infer_signature
 
 from src.utils.config import get_config_value
@@ -14,10 +18,7 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _as_bool(value: Any) -> bool:
-    """
-    Convert config values safely to boolean.
-    """
+def as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
 
@@ -27,46 +28,105 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def safe_metric_name(name: str) -> str:
+    return (
+        str(name)
+        .lower()
+        .strip()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("/", "_")
+    )
+
+
+def is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def log_json_artifact(data: dict[str, Any], filename: str) -> None:
+    temp_dir = Path("artifacts/mlflow_temp")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = temp_dir / filename
+
+    safe_data = remove_unserializable_objects(data)
+
+    with file_path.open("w", encoding="utf-8") as file:
+        json.dump(safe_data, file, indent=2, default=str)
+
+    mlflow.log_artifact(str(file_path))
+
+
+def remove_unserializable_objects(data: Any) -> Any:
+    """
+    Remove model objects / unserializable objects before JSON logging.
+    """
+    if isinstance(data, dict):
+        cleaned = {}
+
+        for key, value in data.items():
+            if key == "trained_model_objects":
+                continue
+
+            cleaned[key] = remove_unserializable_objects(value)
+
+        return cleaned
+
+    if isinstance(data, list):
+        return [remove_unserializable_objects(item) for item in data]
+
+    if isinstance(data, tuple):
+        return [remove_unserializable_objects(item) for item in data]
+
+    if isinstance(data, (str, int, float, bool)) or data is None:
+        return data
+
+    return str(data)
+
+
+def validate_baseline_results(baseline_results: dict[str, Any]) -> None:
+    if not baseline_results:
+        raise MLflowTrackingError(
+            "Baseline results are required for MLflow tracking."
+        )
+
+    if not baseline_results.get("results"):
+        raise MLflowTrackingError("No model results found for MLflow tracking.")
+
+    if not isinstance(baseline_results.get("results"), dict):
+        raise MLflowTrackingError("Baseline results must contain a valid results dict.")
+
+
+def setup_mlflow(experiment_name: str) -> None:
+    tracking_uri = get_config_value("mlflow.tracking_uri", None)
+
+    if tracking_uri:
+        mlflow.set_tracking_uri(str(tracking_uri))
+
+    mlflow.set_experiment(experiment_name)
+
+
 def track_baseline_experiment(
     baseline_results: dict[str, Any],
     experiment_name: str | None = None,
-    sample_input: Optional[pd.DataFrame] = None,
+    sample_input: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
-    Track baseline model metrics, parameters, and best model pipeline in MLflow.
-
-    Args:
-        baseline_results: Output of train_baseline_models().
-        experiment_name: Optional override for the MLflow experiment name.
-        sample_input: A small slice of the *raw* feature dataframe (e.g.
-            X_test.head(3)) used only to log a model signature and input
-            example in MLflow. This is purely metadata for the MLflow UI —
-            it does not affect training or predictions. If not provided,
-            the model is still logged, just without a signature.
+    Track baseline model metrics, parameters, artifacts and best model in MLflow.
     """
     try:
         logger.info("Starting MLflow tracking")
 
-        if not baseline_results:
-            raise MLflowTrackingError(
-                "Baseline results are required for MLflow tracking."
-            )
+        validate_baseline_results(baseline_results)
 
-        experiment_name = experiment_name or get_config_value(
-            "mlflow.experiment_name",
-            "agentic_ml_audit_baselines",
+        experiment_name = experiment_name or str(
+            get_config_value("mlflow.experiment_name", "agentic_ml_audit_baselines")
         )
 
-        log_models = _as_bool(
-            get_config_value("mlflow.log_models", True)
-        )
+        log_models = as_bool(get_config_value("mlflow.log_models", True))
+        artifact_path = str(get_config_value("mlflow.artifact_path", "baseline_model"))
 
-        artifact_path = get_config_value(
-            "mlflow.artifact_path",
-            "baseline_model",
-        )
-
-        mlflow.set_experiment(experiment_name)
+        setup_mlflow(experiment_name)
 
         problem_type = baseline_results.get("problem_type", "N/A")
         target_column = baseline_results.get("target_column", "N/A")
@@ -76,101 +136,123 @@ def track_baseline_experiment(
         preprocessing_summary = baseline_results.get("preprocessing_summary", {})
         trained_model_objects = baseline_results.get("trained_model_objects", {})
 
-        if not results:
-            raise MLflowTrackingError("No model results found for MLflow tracking.")
-
         run_ids: dict[str, str] = {}
-        logged_model_uri = None
+        logged_model_uri: str | None = None
 
-        for model_name, metrics in results.items():
-            logger.info(f"Logging MLflow run for model: {model_name}")
+        parent_run_name = f"audit_baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-            with mlflow.start_run(run_name=model_name) as run:
-                is_best_model = model_name == best_model.get("model_name")
+        with mlflow.start_run(run_name=parent_run_name) as parent_run:
+            mlflow.log_param("run_type", "baseline_experiment_parent")
+            mlflow.log_param("problem_type", problem_type)
+            mlflow.log_param("target_column", target_column)
+            mlflow.log_param("models_count", len(results))
+            mlflow.log_param("models_trained", ", ".join(map(str, models_trained)))
+            mlflow.log_param("timestamp", datetime.now().isoformat())
 
-                mlflow.log_param("problem_type", problem_type)
-                mlflow.log_param("target_column", target_column)
-                mlflow.log_param("model_name", model_name)
-                mlflow.log_param("models_trained", ", ".join(models_trained))
-                mlflow.log_param("is_best_model", is_best_model)
+            if best_model:
+                mlflow.log_param("best_model_name", best_model.get("model_name", "N/A"))
                 mlflow.log_param(
                     "selection_metric",
                     best_model.get("selection_metric", "N/A"),
                 )
-                mlflow.log_param("timestamp", datetime.now().isoformat())
 
-                mlflow.log_param(
-                    "numeric_columns_count",
-                    len(preprocessing_summary.get("numeric_columns", [])),
-                )
-                mlflow.log_param(
-                    "categorical_columns_count",
-                    len(preprocessing_summary.get("categorical_columns", [])),
-                )
-                mlflow.log_param(
-                    "total_features_before_encoding",
-                    preprocessing_summary.get(
-                        "total_features_before_encoding",
-                        "N/A",
-                    ),
-                )
-
-                for metric_name, metric_value in metrics.items():
-                    if isinstance(metric_value, (int, float)):
-                        mlflow.log_metric(metric_name, float(metric_value))
-
-                if is_best_model and isinstance(best_model.get("score"), (int, float)):
+                if is_number(best_model.get("score")):
                     mlflow.log_metric("best_model_score", float(best_model["score"]))
 
-                if log_models and is_best_model:
-                    model_object = trained_model_objects.get(model_name)
+            log_json_artifact(baseline_results, "baseline_results.json")
 
-                    if model_object is not None:
-                        signature = None
-                        input_example = None
+            for model_name, metrics in results.items():
+                logger.info(f"Logging MLflow child run for model: {model_name}")
 
-                        # Build a model signature/input example when the
-                        # caller provides a sample of the raw feature
-                        # dataframe. This is optional metadata: without
-                        # it, the model still logs fine, but MLflow's UI
-                        # and mlflow.models.predict() cannot validate
-                        # input shape/types for you.
-                        if sample_input is not None and not sample_input.empty:
-                            try:
-                                predictions_sample = model_object.predict(
-                                    sample_input
-                                )
-                                signature = infer_signature(
-                                    sample_input,
-                                    predictions_sample,
-                                )
-                                input_example = sample_input
-                            except Exception as signature_error:
-                                logger.warning(
-                                    "Could not infer model signature, "
-                                    f"logging without one: {signature_error}"
-                                )
+                with mlflow.start_run(run_name=model_name, nested=True) as child_run:
+                    is_best_model = model_name == best_model.get("model_name")
 
-                        mlflow.sklearn.log_model(
-                            sk_model=model_object,
-                            artifact_path=artifact_path,
-                            signature=signature,
-                            input_example=input_example,
-                        )
-                        logged_model_uri = f"runs:/{run.info.run_id}/{artifact_path}"
-                        logger.info(
-                            f"Best model logged to MLflow: {logged_model_uri}"
-                        )
-                    else:
-                        logger.warning(
-                            "Best model object not found. "
-                            "Skipping MLflow model logging."
-                        )
+                    mlflow.log_param("run_type", "baseline_model")
+                    mlflow.log_param("problem_type", problem_type)
+                    mlflow.log_param("target_column", target_column)
+                    mlflow.log_param("model_name", model_name)
+                    mlflow.log_param("is_best_model", is_best_model)
+                    mlflow.log_param(
+                        "selection_metric",
+                        best_model.get("selection_metric", "N/A"),
+                    )
 
-                run_ids[model_name] = run.info.run_id
+                    mlflow.log_param(
+                        "numeric_columns_count",
+                        len(preprocessing_summary.get("numeric_columns", [])),
+                    )
+                    mlflow.log_param(
+                        "categorical_columns_count",
+                        len(preprocessing_summary.get("categorical_columns", [])),
+                    )
+                    mlflow.log_param(
+                        "datetime_columns_count",
+                        len(preprocessing_summary.get("datetime_columns", [])),
+                    )
+                    mlflow.log_param(
+                        "total_features_before_encoding",
+                        preprocessing_summary.get(
+                            "total_features_before_encoding",
+                            "N/A",
+                        ),
+                    )
+
+                    for metric_name, metric_value in metrics.items():
+                        if is_number(metric_value):
+                            mlflow.log_metric(
+                                safe_metric_name(metric_name),
+                                float(metric_value),
+                            )
+
+                    if is_best_model and is_number(best_model.get("score")):
+                        mlflow.log_metric("best_model_score", float(best_model["score"]))
+
+                    if log_models and is_best_model:
+                        model_object = trained_model_objects.get(model_name)
+
+                        if model_object is not None:
+                            signature = None
+                            input_example = None
+
+                            if sample_input is not None and not sample_input.empty:
+                                try:
+                                    input_example = sample_input.head(5)
+                                    predictions_sample = model_object.predict(input_example)
+
+                                    signature = infer_signature(
+                                        input_example,
+                                        predictions_sample,
+                                    )
+                                except Exception as signature_error:
+                                    logger.warning(
+                                        "Could not infer model signature. "
+                                        f"Logging model without signature: {signature_error}"
+                                    )
+
+                            mlflow.sklearn.log_model(
+                                sk_model=model_object,
+                                artifact_path=artifact_path,
+                                signature=signature,
+                                input_example=input_example,
+                            )
+
+                            logged_model_uri = (
+                                f"runs:/{child_run.info.run_id}/{artifact_path}"
+                            )
+
+                            logger.info(
+                                f"Best model logged to MLflow: {logged_model_uri}"
+                            )
+                        else:
+                            logger.warning(
+                                "Best model object not found. Skipping model logging."
+                            )
+
+                    run_ids[model_name] = child_run.info.run_id
 
         output = {
             "experiment_name": experiment_name,
+            "parent_run_id": parent_run.info.run_id,
             "models_logged": list(results.keys()),
             "run_ids": run_ids,
             "best_model": best_model,
@@ -188,7 +270,7 @@ def track_baseline_experiment(
     except Exception as error:
         logger.error(f"MLflow tracking failed: {error}")
         raise MLflowTrackingError(
-            "MLflow tracking failed",
+            "MLflow tracking failed.",
             error_detail=str(error),
         ) from error
 
@@ -201,6 +283,7 @@ if __name__ == "__main__":
         "preprocessing_summary": {
             "numeric_columns": ["Age", "StudyHours"],
             "categorical_columns": ["Gender"],
+            "datetime_columns": [],
             "total_features_before_encoding": 3,
         },
         "results": {

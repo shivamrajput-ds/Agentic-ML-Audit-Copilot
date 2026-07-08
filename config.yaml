@@ -12,15 +12,23 @@ audit:
   high_missing_threshold: 50
   high_cardinality_threshold: 50
   id_unique_percent_threshold: 95
+  near_constant_threshold: 95
 
 imbalance:
   low_ratio_threshold: 1.5
   moderate_ratio_threshold: 3
   high_ratio_threshold: 10
+  rare_class_threshold_percent: 5
 
 leakage:
   high_correlation_threshold: 0.90
   classification_proxy_threshold: 0.75
+  duplicate_target_threshold: 0.95
+  encoded_target_correlation_threshold: 0.90
+
+training:
+  test_size: 0.2
+  random_state: 42
 
 modeling:
   test_size: 0.2
@@ -29,6 +37,8 @@ modeling:
   enable_cross_validation: false
 
 mlflow:
+  enabled: true
+  tracking_uri: null
   experiment_name: "agentic_ml_audit_baselines"
   log_models: true
   artifact_path: "baseline_model"
@@ -40,6 +50,10 @@ api:
 streamlit:
   max_upload_mb: 25
   cleanup_uploaded_files: false
+
+reports:
+  output_dir: "reports"
+  default_report_path: "reports/audit_report.md"
 
 llm:
   provider: "groq"

@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from typing import Any
 
 import pandas as pd
 
 from src.utils.config import get_config_value
-from src.utils.exceptions import LeakageDetectionError, InvalidTargetColumnError
+from src.utils.exceptions import InvalidTargetColumnError, LeakageDetectionError
 from src.utils.logger import get_logger
 
 
@@ -20,18 +22,22 @@ TARGET_LIKE_KEYWORDS = [
     "predicted",
     "actual",
     "ground_truth",
+    "grade",
+    "score",
+    "rank",
+    "pass",
+    "fail",
+    "status",
+    "class",
+    "total",
 ]
 
 
-
 def validate_inputs(df: pd.DataFrame, target_column: str) -> None:
-    """
-    Validate dataset and target column before leakage checks.
-    """
-    if df.empty:
+    if df is None or df.empty:
         raise LeakageDetectionError("Dataset is empty.")
 
-    if not target_column:
+    if target_column is None or str(target_column).strip() == "":
         raise InvalidTargetColumnError("Target column is required.")
 
     if target_column not in df.columns:
@@ -39,30 +45,35 @@ def validate_inputs(df: pd.DataFrame, target_column: str) -> None:
             f"Target column '{target_column}' not found in dataset."
         )
 
+    if df[target_column].dropna().empty:
+        raise InvalidTargetColumnError(
+            f"Target column '{target_column}' has only missing values."
+        )
+
 
 def find_name_based_leakage_risks(
     df: pd.DataFrame,
     target_column: str,
 ) -> list[dict[str, Any]]:
-    """
-    Find columns whose names look related to the target or outcome.
-    """
     risks: list[dict[str, Any]] = []
-    target_lower = target_column.lower()
+    target_lower = str(target_column).lower().strip()
 
     for column in df.columns:
         if column == target_column:
             continue
 
-        column_lower = column.lower()
+        column_lower = str(column).lower().strip()
 
         matched_keywords = [
-    keyword
-    for keyword in TARGET_LIKE_KEYWORDS
-    if keyword == column_lower
-    or column_lower.endswith(f"_{keyword}")
-    or column_lower.startswith(f"{keyword}_")
-]
+            keyword
+            for keyword in TARGET_LIKE_KEYWORDS
+            if (
+                keyword == column_lower
+                or column_lower.endswith(f"_{keyword}")
+                or column_lower.startswith(f"{keyword}_")
+                or f"_{keyword}_" in column_lower
+            )
+        ]
 
         target_name_overlap = (
             target_lower in column_lower
@@ -75,11 +86,11 @@ def find_name_based_leakage_risks(
                     "column": column,
                     "risk_type": "name_based_risk",
                     "risk_level": "medium",
-                    "reason": (
-                        "Column name looks related to target/outcome "
-                        "or contains target-like keywords."
-                    ),
                     "matched_keywords": matched_keywords,
+                    "reason": (
+                        "Column name looks related to target/outcome. "
+                        "Review whether this column is available before prediction time."
+                    ),
                 }
             )
 
@@ -89,10 +100,8 @@ def find_name_based_leakage_risks(
 def find_direct_duplicate_target_columns(
     df: pd.DataFrame,
     target_column: str,
+    threshold: float = 0.95,
 ) -> list[dict[str, Any]]:
-    """
-    Find columns whose values are almost identical to the target column.
-    """
     risks: list[dict[str, Any]] = []
 
     target_as_str = df[target_column].fillna("__MISSING_TARGET__").astype(str)
@@ -102,18 +111,18 @@ def find_direct_duplicate_target_columns(
             continue
 
         feature_as_str = df[column].fillna("__MISSING_FEATURE__").astype(str)
-        same_values_ratio = feature_as_str.eq(target_as_str).mean()
+        same_values_ratio = float(feature_as_str.eq(target_as_str).mean())
 
-        if same_values_ratio >= 0.95:
+        if same_values_ratio >= threshold:
             risks.append(
                 {
                     "column": column,
                     "risk_type": "duplicate_target_risk",
-                    "risk_level": "high",
+                    "risk_level": "critical",
                     "same_values_ratio": float(round(same_values_ratio, 4)),
                     "reason": (
                         "Column values are almost identical to the target column. "
-                        "This is a strong possible leakage risk."
+                        "This is a very strong possible leakage risk."
                     ),
                 }
             )
@@ -126,9 +135,6 @@ def find_numeric_correlation_risks(
     target_column: str,
     threshold: float,
 ) -> list[dict[str, Any]]:
-    """
-    Find numeric columns highly correlated with a numeric target.
-    """
     risks: list[dict[str, Any]] = []
 
     if not pd.api.types.is_numeric_dtype(df[target_column]):
@@ -157,7 +163,65 @@ def find_numeric_correlation_risks(
                     "correlation_with_target": float(round(corr_value, 4)),
                     "reason": (
                         "Column has very high correlation with the numeric target. "
-                        "This may indicate possible leakage or direct dependency."
+                        "This may indicate leakage, target-derived features, or a direct dependency."
+                    ),
+                }
+            )
+
+    return risks
+
+
+def find_encoded_target_correlation_risks(
+    df: pd.DataFrame,
+    target_column: str,
+    threshold: float,
+) -> list[dict[str, Any]]:
+    """
+    For classification targets, encode target labels and check numeric feature correlation.
+    This is only a heuristic.
+    """
+    risks: list[dict[str, Any]] = []
+
+    target = df[target_column].dropna()
+    unique_count = target.nunique(dropna=True)
+
+    if unique_count < 2 or unique_count > 20:
+        return risks
+
+    encoded_target = pd.Series(
+        pd.factorize(df[target_column])[0],
+        index=df.index,
+    )
+
+    numeric_columns = (
+        df.drop(columns=[target_column])
+        .select_dtypes(include=["number"])
+        .columns
+    )
+
+    for column in numeric_columns:
+        feature = df[column]
+
+        valid_mask = feature.notna() & df[target_column].notna()
+
+        if valid_mask.sum() < 2:
+            continue
+
+        corr_value = feature[valid_mask].corr(encoded_target[valid_mask])
+
+        if pd.isna(corr_value):
+            continue
+
+        if abs(corr_value) >= threshold:
+            risks.append(
+                {
+                    "column": column,
+                    "risk_type": "encoded_target_correlation_risk",
+                    "risk_level": "medium",
+                    "correlation_with_encoded_target": float(round(corr_value, 4)),
+                    "reason": (
+                        "Numeric feature is highly correlated with encoded target classes. "
+                        "This may be a valid strong feature or a possible target proxy."
                     ),
                 }
             )
@@ -170,12 +234,6 @@ def find_classification_proxy_risks(
     target_column: str,
     threshold: float,
 ) -> list[dict[str, Any]]:
-    """
-    Find numeric features that strongly separate target classes.
-
-    This is only a heuristic. A flagged column may be a valid predictive
-    feature or a possible proxy leakage risk.
-    """
     risks: list[dict[str, Any]] = []
     target = df[target_column]
 
@@ -191,7 +249,7 @@ def find_classification_proxy_risks(
     )
 
     for column in numeric_columns:
-        grouped_means = df.groupby(target_column)[column].mean(numeric_only=True)
+        grouped_means = df.groupby(target_column, dropna=True)[column].mean()
 
         if grouped_means.empty or grouped_means.isna().all():
             continue
@@ -219,6 +277,54 @@ def find_classification_proxy_risks(
     return risks
 
 
+def summarize_risks(all_risks: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+    }
+
+    for risk in all_risks:
+        level = str(risk.get("risk_level", "low")).lower()
+        if level not in summary:
+            summary[level] = 0
+        summary[level] += 1
+
+    return summary
+
+
+def generate_recommended_actions(all_risks: list[dict[str, Any]]) -> list[str]:
+    if not all_risks:
+        return ["No obvious leakage indicators detected by basic heuristics."]
+
+    actions = [
+        "Manually verify whether flagged columns are available at prediction time.",
+        "Remove confirmed target-derived columns before training.",
+        "Compare baseline performance with and without flagged columns.",
+    ]
+
+    risk_types = {risk.get("risk_type") for risk in all_risks}
+
+    if "duplicate_target_risk" in risk_types:
+        actions.insert(
+            0,
+            "Immediately review duplicate-target columns; they are likely invalid for modeling.",
+        )
+
+    if "high_correlation_risk" in risk_types:
+        actions.append(
+            "Investigate highly correlated numeric columns for formula-derived target leakage."
+        )
+
+    if "name_based_risk" in risk_types:
+        actions.append(
+            "Review target-like column names carefully; names alone are not proof of leakage."
+        )
+
+    return actions
+
+
 def run_leakage_check(
     df: pd.DataFrame,
     target_column: str,
@@ -226,7 +332,7 @@ def run_leakage_check(
     """
     Run deterministic possible leakage-risk checks.
 
-    The module reports possible leakage risks only.
+    This module reports possible leakage risks only.
     It never claims confirmed leakage.
     """
     try:
@@ -238,26 +344,36 @@ def run_leakage_check(
         proxy_threshold = float(
             get_config_value("leakage.classification_proxy_threshold", 0.75)
         )
-
-        name_based_risks = find_name_based_leakage_risks(
-            df=df,
-            target_column=target_column,
+        duplicate_threshold = float(
+            get_config_value("leakage.duplicate_target_threshold", 0.95)
+        )
+        encoded_corr_threshold = float(
+            get_config_value("leakage.encoded_target_correlation_threshold", 0.90)
         )
 
+        name_based_risks = find_name_based_leakage_risks(df, target_column)
+
         duplicate_target_risks = find_direct_duplicate_target_columns(
-            df=df,
-            target_column=target_column,
+            df,
+            target_column,
+            threshold=duplicate_threshold,
         )
 
         numeric_correlation_risks = find_numeric_correlation_risks(
-            df=df,
-            target_column=target_column,
+            df,
+            target_column,
             threshold=correlation_threshold,
         )
 
+        encoded_target_correlation_risks = find_encoded_target_correlation_risks(
+            df,
+            target_column,
+            threshold=encoded_corr_threshold,
+        )
+
         classification_proxy_risks = find_classification_proxy_risks(
-            df=df,
-            target_column=target_column,
+            df,
+            target_column,
             threshold=proxy_threshold,
         )
 
@@ -265,17 +381,27 @@ def run_leakage_check(
             name_based_risks
             + duplicate_target_risks
             + numeric_correlation_risks
+            + encoded_target_correlation_risks
             + classification_proxy_risks
         )
 
-        report = {
+        report: dict[str, Any] = {
             "target_column": target_column,
-            "total_possible_leakage_risks": len(all_risks),
+            "total_possible_leakage_risks": int(len(all_risks)),
+            "risk_summary": summarize_risks(all_risks),
+            "thresholds": {
+                "high_correlation_threshold": correlation_threshold,
+                "classification_proxy_threshold": proxy_threshold,
+                "duplicate_target_threshold": duplicate_threshold,
+                "encoded_target_correlation_threshold": encoded_corr_threshold,
+            },
             "name_based_risks": name_based_risks,
             "duplicate_target_risks": duplicate_target_risks,
             "numeric_correlation_risks": numeric_correlation_risks,
+            "encoded_target_correlation_risks": encoded_target_correlation_risks,
             "classification_proxy_risks": classification_proxy_risks,
             "all_risks": all_risks,
+            "recommended_actions": generate_recommended_actions(all_risks),
             "warning": (
                 "These are possible leakage risks, not confirmed leakage. "
                 "A human should review whether these columns would be available at prediction time."
@@ -290,7 +416,7 @@ def run_leakage_check(
 
     except Exception as error:
         raise LeakageDetectionError(
-            "Leakage detection failed",
+            "Leakage detection failed.",
             error_detail=str(error),
         ) from error
 

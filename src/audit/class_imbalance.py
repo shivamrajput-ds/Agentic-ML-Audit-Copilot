@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 import pandas as pd
@@ -8,6 +10,8 @@ from src.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
 
 
 def detect_class_imbalance(
@@ -21,17 +25,7 @@ def detect_class_imbalance(
     try:
         logger.info("Starting class imbalance detection")
 
-        if df is None or df.empty:
-            raise AuditCopilotException("Input dataframe is empty.")
-
-        if not target_column:
-            raise AuditCopilotException("Target column is required.")
-
-        if target_column not in df.columns:
-            raise AuditCopilotException(f"Target column not found: {target_column}")
-
-        if not problem_type:
-            raise AuditCopilotException("Problem type is required.")
+        _validate_inputs(df, target_column, problem_type)
 
         normalized_problem_type = problem_type.lower().strip()
 
@@ -40,15 +34,10 @@ def detect_class_imbalance(
                 "problem_type": normalized_problem_type,
                 "target_column": target_column,
                 "is_applicable": False,
-                "message": (
-                    "Class imbalance detection is not applicable for regression problems."
-                ),
+                "message": "Class imbalance detection is not applicable for regression problems.",
             }
 
-        if normalized_problem_type not in {
-            "binary_classification",
-            "multiclass_classification",
-        }:
+        if normalized_problem_type not in CLASSIFICATION_TYPES:
             raise AuditCopilotException(
                 f"Unsupported problem type: {normalized_problem_type}"
             )
@@ -58,31 +47,35 @@ def detect_class_imbalance(
         if target_series.empty:
             raise AuditCopilotException("Target column has no valid non-null values.")
 
+        if target_series.nunique(dropna=True) < 2:
+            raise AuditCopilotException(
+                "Target column must contain at least 2 unique classes."
+            )
+
         value_counts = target_series.value_counts()
-        value_percentages = target_series.value_counts(normalize=True).mul(100).round(2)
+        value_percentages = value_counts.div(len(target_series)).mul(100).round(2)
 
         majority_class = value_counts.idxmax()
         minority_class = value_counts.idxmin()
 
         majority_count = int(value_counts.max())
         minority_count = int(value_counts.min())
+        total_valid_rows = int(len(target_series))
 
-        if minority_count == 0:
-            imbalance_ratio = float("inf")
-        else:
-            imbalance_ratio = round(majority_count / minority_count, 2)
+        imbalance_ratio = round(majority_count / minority_count, 2)
 
-        severity = _get_imbalance_severity(imbalance_ratio)
+        severity = get_imbalance_severity(imbalance_ratio)
+        rare_classes = get_rare_classes(value_percentages)
 
-        recommended_metrics = _recommend_metrics_for_imbalance(
-            problem_type=normalized_problem_type,
-            severity=severity,
-        )
-
-        result = {
+        result: dict[str, Any] = {
             "problem_type": normalized_problem_type,
             "target_column": target_column,
             "is_applicable": True,
+            "total_rows": int(len(df)),
+            "valid_target_rows": total_valid_rows,
+            "missing_target_rows": int(df[target_column].isna().sum()),
+            "missing_target_percent": float(round(df[target_column].isna().mean() * 100, 2)),
+            "num_classes": int(value_counts.shape[0]),
             "class_counts": {
                 str(label): int(count)
                 for label, count in value_counts.items()
@@ -95,10 +88,15 @@ def detect_class_imbalance(
             "minority_class": str(minority_class),
             "majority_count": majority_count,
             "minority_count": minority_count,
-            "imbalance_ratio": imbalance_ratio,
+            "imbalance_ratio": float(imbalance_ratio),
             "imbalance_severity": severity,
-            "recommended_metrics": recommended_metrics,
-            "warning": _get_warning(severity),
+            "rare_classes": rare_classes,
+            "recommended_metrics": recommend_metrics_for_imbalance(
+                problem_type=normalized_problem_type,
+                severity=severity,
+            ),
+            "recommended_actions": recommend_actions(severity, rare_classes),
+            "warning": get_warning(severity, rare_classes),
         }
 
         logger.info("Class imbalance detection completed successfully")
@@ -110,12 +108,30 @@ def detect_class_imbalance(
     except Exception as error:
         logger.error(f"Class imbalance detection failed: {error}")
         raise AuditCopilotException(
-            "Class imbalance detection failed",
+            "Class imbalance detection failed.",
             error_detail=str(error),
         ) from error
 
 
-def _get_imbalance_severity(imbalance_ratio: float) -> str:
+def _validate_inputs(
+    df: pd.DataFrame,
+    target_column: str,
+    problem_type: str,
+) -> None:
+    if df is None or df.empty:
+        raise AuditCopilotException("Input dataframe is empty.")
+
+    if target_column is None or str(target_column).strip() == "":
+        raise AuditCopilotException("Target column is required.")
+
+    if target_column not in df.columns:
+        raise AuditCopilotException(f"Target column not found: {target_column}")
+
+    if problem_type is None or str(problem_type).strip() == "":
+        raise AuditCopilotException("Problem type is required.")
+
+
+def get_imbalance_severity(imbalance_ratio: float) -> str:
     """
     Decide imbalance severity using config-driven ratio thresholds.
     """
@@ -134,7 +150,28 @@ def _get_imbalance_severity(imbalance_ratio: float) -> str:
 
     return "severe"
 
-def _recommend_metrics_for_imbalance(
+
+def get_rare_classes(
+    class_percentages: pd.Series,
+    rare_class_threshold_percent: float | None = None,
+) -> dict[str, float]:
+    """
+    Detect classes whose percentage is very small.
+    """
+    if rare_class_threshold_percent is None:
+        rare_class_threshold_percent = float(
+            get_config_value("imbalance.rare_class_threshold_percent", 5)
+        )
+
+    rare = class_percentages[class_percentages < rare_class_threshold_percent]
+
+    return {
+        str(label): float(percent)
+        for label, percent in rare.items()
+    }
+
+
+def recommend_metrics_for_imbalance(
     problem_type: str,
     severity: str,
 ) -> list[str]:
@@ -150,15 +187,58 @@ def _recommend_metrics_for_imbalance(
     if problem_type == "binary_classification":
         return ["Precision", "Recall", "F1 Score", "PR-AUC", "ROC-AUC"]
 
-    return ["Macro Precision", "Macro Recall", "Macro F1 Score", "Weighted F1 Score"]
+    return [
+        "Macro Precision",
+        "Macro Recall",
+        "Macro F1 Score",
+        "Weighted F1 Score",
+        "Balanced Accuracy",
+    ]
 
 
-def _get_warning(severity: str) -> str:
+def recommend_actions(
+    severity: str,
+    rare_classes: dict[str, float],
+) -> list[str]:
+    """
+    Recommend practical actions for handling imbalance.
+    """
+    actions: list[str] = []
+
+    if severity == "low" and not rare_classes:
+        return ["No major imbalance handling required."]
+
+    actions.append("Avoid relying only on accuracy.")
+    actions.append("Use stratified train-test split for classification.")
+
+    if severity in {"moderate", "high", "severe"}:
+        actions.append("Compare macro and weighted metrics.")
+        actions.append("Consider class_weight='balanced' for supported models.")
+
+    if severity in {"high", "severe"}:
+        actions.append("Inspect minority-class recall carefully.")
+        actions.append("Consider resampling only after creating a proper train split.")
+
+    if rare_classes:
+        actions.append("Rare classes detected; verify whether they are valid labels or data errors.")
+
+    return actions
+
+
+def get_warning(
+    severity: str,
+    rare_classes: dict[str, float] | None = None,
+) -> str:
     """
     Generate human-readable imbalance warning.
     """
-    if severity == "low":
+    rare_classes = rare_classes or {}
+
+    if severity == "low" and not rare_classes:
         return "No major class imbalance detected."
+
+    if severity == "low" and rare_classes:
+        return "Overall imbalance is low, but some rare classes are present."
 
     if severity == "moderate":
         return "Moderate class imbalance detected. Accuracy alone may be misleading."
@@ -166,7 +246,7 @@ def _get_warning(severity: str) -> str:
     if severity == "high":
         return (
             "High class imbalance detected. Prefer F1, Recall, Precision, "
-            "PR-AUC, or Macro F1."
+            "PR-AUC, Balanced Accuracy, or Macro F1."
         )
 
     return (

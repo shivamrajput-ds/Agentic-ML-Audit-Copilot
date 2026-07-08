@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
@@ -6,6 +8,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    confusion_matrix,
     f1_score,
     mean_absolute_error,
     mean_squared_error,
@@ -15,6 +18,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder
 
 from src.audit.preprocessing import build_preprocessing_pipeline, create_train_test_split
 from src.utils.config import get_config_value
@@ -23,6 +27,8 @@ from src.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
 
 
 def train_baseline_models(
@@ -38,17 +44,21 @@ def train_baseline_models(
     try:
         logger.info("Starting baseline model training")
 
-        _validate_inputs(df, target_column, problem_type)
+        validate_inputs(df, target_column, problem_type)
         problem_type = problem_type.lower().strip()
+
+        random_state = int(get_config_value("modeling.random_state", 42))
+        test_size = float(get_config_value("modeling.test_size", 0.2))
+
+        if problem_type == "regression":
+            validate_regression_target(df[target_column])
 
         preprocessing_info = build_preprocessing_pipeline(
             df=df,
             target_column=target_column,
         )
-        preprocessor = preprocessing_info["preprocessor"]
 
-        random_state = int(get_config_value("modeling.random_state", 42))
-        test_size = float(get_config_value("modeling.test_size", 0.2))
+        preprocessor = preprocessing_info["preprocessor"]
 
         X_train, X_test, y_train, y_test = create_train_test_split(
             df=df,
@@ -58,10 +68,19 @@ def train_baseline_models(
             random_state=random_state,
         )
 
-        models = _get_baseline_models(
-            problem_type=problem_type,
-            random_state=random_state,
-        )
+        label_encoder = None
+
+        if problem_type in CLASSIFICATION_TYPES:
+            label_encoder = LabelEncoder()
+            y_train_model = label_encoder.fit_transform(y_train.astype(str))
+            y_test_model = label_encoder.transform(y_test.astype(str))
+            class_labels = label_encoder.classes_.tolist()
+        else:
+            y_train_model = y_train
+            y_test_model = y_test
+            class_labels = []
+
+        models = get_baseline_models(problem_type, random_state)
 
         results: dict[str, Any] = {}
 
@@ -75,35 +94,41 @@ def train_baseline_models(
                 ]
             )
 
-            pipeline.fit(X_train, y_train)
+            pipeline.fit(X_train, y_train_model)
             y_pred = pipeline.predict(X_test)
 
-            if problem_type in {"binary_classification", "multiclass_classification"}:
-                metrics = _evaluate_classification(
+            if problem_type in CLASSIFICATION_TYPES:
+                metrics = evaluate_classification(
                     model=pipeline,
                     X_test=X_test,
-                    y_test=y_test,
+                    y_test=y_test_model,
                     y_pred=y_pred,
                     problem_type=problem_type,
                 )
+
+                confusion = confusion_matrix(y_test_model, y_pred).tolist()
+
             elif problem_type == "regression":
-                metrics = _evaluate_regression(y_test=y_test, y_pred=y_pred)
+                metrics = evaluate_regression(
+                    y_test=y_test_model,
+                    y_pred=y_pred,
+                )
+                confusion = None
+
             else:
                 raise ModelTrainingError(f"Unsupported problem type: {problem_type}")
 
             results[model_name] = {
                 "metrics": metrics,
                 "model_object": pipeline,
+                "confusion_matrix": confusion,
             }
 
             logger.info(f"Completed model: {model_name}")
 
-        best_model = _select_best_model(
-            results=results,
-            problem_type=problem_type,
-        )
+        best_model = select_best_model(results, problem_type)
 
-        return {
+        output: dict[str, Any] = {
             "problem_type": problem_type,
             "target_column": target_column,
             "models_trained": list(models.keys()),
@@ -119,14 +144,32 @@ def train_baseline_models(
             "preprocessing_summary": {
                 "numeric_columns": preprocessing_info.get("numeric_columns", []),
                 "categorical_columns": preprocessing_info.get("categorical_columns", []),
+                "datetime_columns": preprocessing_info.get("datetime_columns", []),
+                "unsupported_columns_dropped": preprocessing_info.get(
+                    "unsupported_columns_dropped",
+                    [],
+                ),
                 "total_features_before_encoding": preprocessing_info.get(
                     "total_features_before_encoding",
                     0,
                 ),
             },
+            "evaluation_details": {
+                "test_size": test_size,
+                "random_state": random_state,
+                "class_labels": class_labels,
+                "confusion_matrices": {
+                    model_name: model_result["confusion_matrix"]
+                    for model_name, model_result in results.items()
+                    if model_result["confusion_matrix"] is not None
+                },
+            },
             "message": "Baseline model training completed successfully.",
             "note": "These are baseline sanity-check models, not final optimized models.",
         }
+
+        logger.info("Baseline model training completed successfully")
+        return output
 
     except ModelTrainingError:
         raise
@@ -134,40 +177,35 @@ def train_baseline_models(
     except Exception as error:
         logger.error(f"Baseline model training failed: {error}")
         raise ModelTrainingError(
-            "Baseline model training failed",
+            "Baseline model training failed.",
             error_detail=str(error),
         ) from error
 
 
-def _validate_inputs(
-    df: pd.DataFrame,
-    target_column: str,
-    problem_type: str,
-) -> None:
-    """
-    Validate baseline model training inputs.
-    """
+def validate_inputs(df: pd.DataFrame, target_column: str, problem_type: str) -> None:
     if df is None or df.empty:
         raise ModelTrainingError("Input dataframe is empty.")
 
-    if not target_column:
+    if target_column is None or str(target_column).strip() == "":
         raise ModelTrainingError("Target column is required.")
 
     if target_column not in df.columns:
         raise ModelTrainingError(f"Target column not found: {target_column}")
 
-    if not problem_type:
+    if problem_type is None or str(problem_type).strip() == "":
         raise ModelTrainingError("Problem type is required.")
 
+    if df[target_column].dropna().nunique() < 2:
+        raise ModelTrainingError("Target column must contain at least 2 unique values.")
 
-def _get_baseline_models(
-    problem_type: str,
-    random_state: int,
-) -> dict[str, Any]:
-    """
-    Return baseline models based on problem type.
-    """
-    if problem_type in {"binary_classification", "multiclass_classification"}:
+
+def validate_regression_target(target: pd.Series) -> None:
+    if not pd.api.types.is_numeric_dtype(target):
+        raise ModelTrainingError("Regression target must be numeric.")
+
+
+def get_baseline_models(problem_type: str, random_state: int) -> dict[str, Any]:
+    if problem_type in CLASSIFICATION_TYPES:
         return {
             "Logistic Regression": LogisticRegression(
                 max_iter=1000,
@@ -197,32 +235,29 @@ def _get_baseline_models(
     raise ModelTrainingError(f"Unsupported problem type: {problem_type}")
 
 
-def _evaluate_classification(
+def evaluate_classification(
     model: Pipeline,
     X_test: pd.DataFrame,
-    y_test: pd.Series,
+    y_test: np.ndarray,
     y_pred: np.ndarray,
     problem_type: str,
 ) -> dict[str, float]:
-    """
-    Evaluate classification model.
-
-    Weighted average supports numeric and string class labels.
-    """
-    average_type = "weighted"
-
     metrics = {
-        "accuracy": round(accuracy_score(y_test, y_pred), 4),
-        "precision": round(
-            precision_score(y_test, y_pred, average=average_type, zero_division=0),
+        "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+        "precision_weighted": round(
+            float(precision_score(y_test, y_pred, average="weighted", zero_division=0)),
             4,
         ),
-        "recall": round(
-            recall_score(y_test, y_pred, average=average_type, zero_division=0),
+        "recall_weighted": round(
+            float(recall_score(y_test, y_pred, average="weighted", zero_division=0)),
             4,
         ),
         "f1_score": round(
-            f1_score(y_test, y_pred, average=average_type, zero_division=0),
+            float(f1_score(y_test, y_pred, average="weighted", zero_division=0)),
+            4,
+        ),
+        "f1_macro": round(
+            float(f1_score(y_test, y_pred, average="macro", zero_division=0)),
             4,
         ),
     }
@@ -233,17 +268,19 @@ def _evaluate_classification(
 
             if problem_type == "binary_classification" and y_proba.shape[1] == 2:
                 metrics["roc_auc"] = round(
-                    roc_auc_score(y_test, y_proba[:, 1]),
+                    float(roc_auc_score(y_test, y_proba[:, 1])),
                     4,
                 )
 
-            elif problem_type == "multiclass_classification":
-                metrics["roc_auc"] = round(
-                    roc_auc_score(
-                        y_test,
-                        y_proba,
-                        multi_class="ovr",
-                        average="weighted",
+            elif problem_type == "multiclass_classification" and y_proba.shape[1] > 2:
+                metrics["roc_auc_ovr_weighted"] = round(
+                    float(
+                        roc_auc_score(
+                            y_test,
+                            y_proba,
+                            multi_class="ovr",
+                            average="weighted",
+                        )
                     ),
                     4,
                 )
@@ -254,20 +291,14 @@ def _evaluate_classification(
     return metrics
 
 
-def _evaluate_regression(
-    y_test: pd.Series,
-    y_pred: np.ndarray,
-) -> dict[str, float]:
-    """
-    Evaluate regression model.
-    """
+def evaluate_regression(y_test: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
     mse = mean_squared_error(y_test, y_pred)
     rmse = float(np.sqrt(mse))
 
     metrics = {
-        "mae": round(mean_absolute_error(y_test, y_pred), 4),
+        "mae": round(float(mean_absolute_error(y_test, y_pred)), 4),
         "rmse": round(rmse, 4),
-        "r2_score": round(r2_score(y_test, y_pred), 4),
+        "r2_score": round(float(r2_score(y_test, y_pred)), 4),
     }
 
     try:
@@ -293,14 +324,8 @@ def _evaluate_regression(
     return metrics
 
 
-def _select_best_model(
-    results: dict[str, Any],
-    problem_type: str,
-) -> dict[str, Any]:
-    """
-    Select best baseline model using primary metric.
-    """
-    if problem_type in {"binary_classification", "multiclass_classification"}:
+def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, Any]:
+    if problem_type in CLASSIFICATION_TYPES:
         primary_metric = "f1_score"
         higher_is_better = True
     else:
@@ -335,5 +360,31 @@ def _select_best_model(
     return {
         "model_name": best_model_name,
         "selection_metric": primary_metric,
-        "score": best_score,
+        "score": float(best_score),
+        "higher_is_better": higher_is_better,
     }
+
+
+if __name__ == "__main__":
+    from src.audit.profiler import load_dataset
+    from src.audit.problem_detector import detect_problem_type
+
+    dataset_path = "data/sample/student_mark.csv"
+    target_column = "Grade"
+
+    df = load_dataset(dataset_path)
+    problem_info = detect_problem_type(df, target_column)
+
+    output = train_baseline_models(
+        df=df,
+        target_column=target_column,
+        problem_type=problem_info["problem_type"],
+    )
+
+    printable_output = {
+        key: value
+        for key, value in output.items()
+        if key != "trained_model_objects"
+    }
+
+    print(printable_output)
