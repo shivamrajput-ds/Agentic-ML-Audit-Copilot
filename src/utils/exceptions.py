@@ -26,6 +26,10 @@ class AuditCopilotException(Exception):
         }
 
 
+class ConfigError(AuditCopilotException):
+    """Raised when configuration loading or validation fails."""
+
+
 class InvalidDatasetError(AuditCopilotException):
     """Raised when the dataset is missing, empty, unreadable, or invalid."""
 
@@ -68,6 +72,10 @@ class MLflowTrackingError(AuditCopilotException):
 
 class ReportGenerationError(AuditCopilotException):
     """Raised when audit report generation or saving fails."""
+
+
+class LLMReportError(AuditCopilotException):
+    """Raised when LLM-based report explanation or Q&A fails."""
 
 
 class AgentWorkflowError(AuditCopilotException):

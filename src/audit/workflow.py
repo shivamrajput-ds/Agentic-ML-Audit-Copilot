@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, TypedDict, cast
+from pathlib import Path
+from typing import Any
 
-import pandas as pd
-from langgraph.graph import END, StateGraph
-
-from src.audit.baseline_models import train_baseline_models
+from src.audit.baseline_models import (
+    get_sample_features_for_explainability,
+    strip_runtime_objects,
+    train_baseline_models,
+)
 from src.audit.class_imbalance import detect_class_imbalance
 from src.audit.data_quality import run_data_quality_audit
+from src.audit.explainability import run_model_explainability
 from src.audit.leakage import run_leakage_check
 from src.audit.llm_report import build_audit_report, save_audit_report
 from src.audit.metric_recommender import recommend_metrics
@@ -22,253 +25,47 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class _AuditStateRequired(TypedDict):
+def as_bool(value: Any) -> bool:
     """
-    Keys that are always present the moment run_audit_workflow() builds
-    the initial state — before the graph even starts executing. Splitting
-    these out of the `total=False` block below silences a batch of
-    Pylance "reportTypedDictNotRequiredAccess" warnings for keys that are
-    genuinely guaranteed to exist (dataset_path, target_column), without
-    dishonestly marking the *progressively populated* keys (df, profile,
-    baseline_results, etc.) as required when they are not yet set at the
-    start of the run.
+    Convert config values safely into boolean.
     """
+    if isinstance(value, bool):
+        return value
 
-    dataset_path: str
-    target_column: str
-    report_output_path: str
+    if isinstance(value, str):
+        return value.lower().strip() in {"true", "1", "yes", "y"}
 
-
-class AuditState(_AuditStateRequired, total=False):
-    df: pd.DataFrame
-
-    profile: dict[str, Any]
-    problem_type_result: dict[str, Any]
-    problem_type: str
-    data_quality: dict[str, Any]
-    leakage: dict[str, Any]
-    metric_recommendation: dict[str, Any]
-    class_imbalance: dict[str, Any]
-    baseline_results: dict[str, Any]
-    mlflow_results: dict[str, Any]
-    audit_report: str
-    report_save_result: dict[str, Any]
-
-    errors: list[str]
-    warnings: list[str]
-
-
-def load_dataset_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: load_dataset")
-
-    state["df"] = load_dataset(state["dataset_path"])
-
-    logger.info("Workflow node completed: load_dataset")
-    return state
-
-
-def profile_dataset_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: profile_dataset")
-
-    state["profile"] = profile_dataset(
-        df=state["df"],
-        target_column=state["target_column"],
-    )
-
-    logger.info("Workflow node completed: profile_dataset")
-    return state
-
-
-def problem_type_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: problem_type_detection")
-
-    problem_result = detect_problem_type(
-        df=state["df"],
-        target_column=state["target_column"],
-    )
-
-    state["problem_type_result"] = problem_result
-    state["problem_type"] = problem_result["problem_type"]
-
-    logger.info("Workflow node completed: problem_type_detection")
-    return state
-
-
-def data_quality_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: data_quality")
-
-    state["data_quality"] = run_data_quality_audit(
-        df=state["df"],
-        target_column=state["target_column"],
-    )
-
-    logger.info("Workflow node completed: data_quality")
-    return state
-
-
-def leakage_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: leakage")
-
-    state["leakage"] = run_leakage_check(
-        df=state["df"],
-        target_column=state["target_column"],
-    )
-
-    logger.info("Workflow node completed: leakage")
-    return state
-
-
-def class_imbalance_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: class_imbalance")
-
-    state["class_imbalance"] = detect_class_imbalance(
-        df=state["df"],
-        target_column=state["target_column"],
-        problem_type=state["problem_type"],
-    )
-
-    logger.info("Workflow node completed: class_imbalance")
-    return state
-
-
-def metric_recommendation_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: metric_recommendation")
-
-    imbalance_severity = None
-
-    if state.get("class_imbalance", {}).get("is_applicable"):
-        imbalance_severity = state["class_imbalance"].get("imbalance_severity")
-
-    state["metric_recommendation"] = recommend_metrics(
-        problem_type=state["problem_type"],
-        imbalance_severity=imbalance_severity,
-    )
-
-    logger.info("Workflow node completed: metric_recommendation")
-    return state
-
-
-def baseline_model_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: baseline_model")
-
-    state["baseline_results"] = train_baseline_models(
-        df=state["df"],
-        target_column=state["target_column"],
-        problem_type=state["problem_type"],
-    )
-
-    logger.info("Workflow node completed: baseline_model")
-    return state
-
-
-def mlflow_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: mlflow")
-
-    try:
-        enable_mlflow = str(
-            get_config_value("mlflow.enabled", True)
-        ).lower().strip() in {"true", "1", "yes", "y"}
-
-        if not enable_mlflow:
-            state["mlflow_results"] = {
-                "enabled": False,
-                "message": "MLflow tracking skipped because it is disabled in config.",
-            }
-            return state
-
-        feature_df = state["df"].drop(columns=[state["target_column"]])
-        sample_input = feature_df.head(5)
-
-        state["mlflow_results"] = track_baseline_experiment(
-            baseline_results=state["baseline_results"],
-            sample_input=sample_input,
-        )
-
-    except Exception as error:
-        warning = f"MLflow tracking failed but workflow continued: {error}"
-        logger.warning(warning)
-
-        state.setdefault("warnings", []).append(warning)
-        state["mlflow_results"] = {
-            "enabled": True,
-            "success": False,
-            "message": warning,
-        }
-
-    logger.info("Workflow node completed: mlflow")
-    return state
-
-
-def audit_report_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: audit_report")
-
-    # cast() here is a no-op at runtime — AuditState IS a dict at runtime.
-    # It only tells Pylance that passing our TypedDict where a generic
-    # dict[str, Any] is expected is intentional, not a type error.
-    report = build_audit_report(cast(dict[str, Any], state))
-
-    output_path = state.get("report_output_path", "reports/audit_report.md")
-
-    save_result = save_audit_report(
-        report=report,
-        output_path=output_path,
-    )
-
-    state["audit_report"] = report
-    state["report_save_result"] = save_result
-
-    logger.info("Workflow node completed: audit_report")
-    return state
-
-
-def build_audit_workflow():
-    workflow = StateGraph(AuditState)
-    
-    workflow.add_node("load_dataset", load_dataset_node)
-    workflow.add_node("profile_dataset", profile_dataset_node)
-    # NOTE ON NODE NAMING: LangGraph's StateGraph forbids a node name
-    # that is identical to any key already declared in the state
-    # TypedDict (AuditState). Several node names below originally matched
-    # their corresponding state keys exactly ("data_quality", "leakage",
-    # "class_imbalance", "metric_recommendation", "audit_report"), which
-    # made add_node() raise:
-    #   ValueError: '<name>' is already being used as a state key
-    # ...on every single run, before the graph could even execute. Every
-    # colliding node name below has been suffixed (_detection/_check/etc.)
-    # while the state keys themselves (which llm_report.py, api.py, and
-    # streamlit_app.py all rely on) are left completely unchanged.
-    workflow.add_node("problem_type_detection", problem_type_node)
-    workflow.add_node("data_quality_check", data_quality_node)
-    workflow.add_node("leakage_check", leakage_node)
-    workflow.add_node("class_imbalance_check", class_imbalance_node)
-    workflow.add_node("metric_recommendation_step", metric_recommendation_node)
-    workflow.add_node("baseline_model", baseline_model_node)
-    workflow.add_node("mlflow", mlflow_node)
-    workflow.add_node("audit_report_generation", audit_report_node)
-
-    workflow.set_entry_point("load_dataset")
-
-    workflow.add_edge("load_dataset", "profile_dataset")
-    workflow.add_edge("profile_dataset", "problem_type_detection")
-    workflow.add_edge("problem_type_detection", "data_quality_check")
-    workflow.add_edge("data_quality_check", "leakage_check")
-    workflow.add_edge("leakage_check", "class_imbalance_check")
-    workflow.add_edge("class_imbalance_check", "metric_recommendation_step")
-    workflow.add_edge("metric_recommendation_step", "baseline_model")
-    workflow.add_edge("baseline_model", "mlflow")
-    workflow.add_edge("mlflow", "audit_report_generation")
-    workflow.add_edge("audit_report_generation", END)
-
-    return workflow.compile()
+    return bool(value)
 
 
 def run_audit_workflow(
-    dataset_path: str,
+    dataset_path: str | Path,
     target_column: str,
-    report_output_path: str = "reports/audit_report.md",
-) -> AuditState:
+) -> dict[str, Any]:
+    """
+    Run full deterministic ML audit workflow.
+
+    Flow:
+    1. Load dataset
+    2. Profile dataset
+    3. Detect problem type
+    4. Run data quality audit
+    5. Detect leakage risks
+    6. Detect class imbalance
+    7. Recommend metrics
+    8. Train baseline models
+    9. Track MLflow experiment
+    10. Run explainability
+    11. Generate final audit report
+    12. Save report
+
+    Notes:
+    - Python performs all ML computations.
+    - LLM is only used for explanation/report writing.
+    - Baseline models are sanity-check models, not final optimized models.
+    """
     try:
-        logger.info("Starting Agentic ML audit workflow")
+        logger.info("Starting full audit workflow")
 
         if dataset_path is None or str(dataset_path).strip() == "":
             raise AgentWorkflowError("Dataset path is required.")
@@ -276,70 +73,310 @@ def run_audit_workflow(
         if target_column is None or str(target_column).strip() == "":
             raise AgentWorkflowError("Target column is required.")
 
-        app = build_audit_workflow()
+        clean_target_column = str(target_column).strip()
 
-        initial_state: AuditState = {
-            "dataset_path": dataset_path,
-            "target_column": target_column,
-            "report_output_path": report_output_path,
-            "errors": [],
-            "warnings": [],
+        df = load_dataset(dataset_path)
+
+        profile = profile_dataset(
+            df=df,
+            target_column=clean_target_column,
+        )
+
+        problem_info = detect_problem_type(
+            df=df,
+            target_column=clean_target_column,
+        )
+        problem_type = problem_info["problem_type"]
+
+        data_quality = run_data_quality_audit(
+            df=df,
+            target_column=clean_target_column,
+        )
+
+        leakage = run_leakage_check(
+            df=df,
+            target_column=clean_target_column,
+        )
+
+        class_imbalance = detect_class_imbalance(
+            df=df,
+            target_column=clean_target_column,
+            problem_type=problem_type,
+        )
+
+        imbalance_severity = (
+            class_imbalance.get("imbalance_severity")
+            if class_imbalance.get("is_applicable", False)
+            else None
+        )
+
+        metric_recommendation = recommend_metrics(
+            problem_type=problem_type,
+            imbalance_severity=imbalance_severity,
+        )
+
+        baseline_results = train_baseline_models(
+            df=df,
+            target_column=clean_target_column,
+            problem_type=problem_type,
+        )
+
+        sample_features = get_sample_features_for_explainability(baseline_results)
+
+        mlflow_results = run_mlflow_tracking_safely(
+            baseline_results=baseline_results,
+            sample_features=sample_features,
+        )
+
+        explainability = run_explainability_safely(
+            baseline_results=baseline_results,
+            sample_features=sample_features,
+        )
+
+        audit_results_with_runtime: dict[str, Any] = {
+            "target_column": clean_target_column,
+            "problem_type": problem_type,
+            "dataset_path": str(dataset_path),
+            "profile": profile,
+            "problem_detection": problem_info,
+            "data_quality": data_quality,
+            "leakage": leakage,
+            "class_imbalance": class_imbalance,
+            "metric_recommendation": metric_recommendation,
+            "baseline_results": baseline_results,
+            "mlflow_results": mlflow_results,
+            "explainability": explainability,
         }
 
-        # LangGraph's app.invoke() returns a plain dict at the type level
-        # even though at runtime it's exactly our AuditState shape (it's
-        # literally the same dict we built and mutated node by node).
-        # cast() here just tells Pylance to trust the declared return
-        # type instead of flagging a mismatch.
-        final_state = cast(AuditState, app.invoke(initial_state))
+        report_input = build_report_safe_results(audit_results_with_runtime)
 
-        logger.info("Agentic ML audit workflow completed successfully")
-        return final_state
+        audit_report = build_audit_report(report_input)
+
+        report_save_result = save_report_safely(audit_report)
+
+        final_results = build_report_safe_results(audit_results_with_runtime)
+        final_results["audit_report"] = audit_report
+        final_results["report_save_result"] = report_save_result
+        final_results["message"] = "Full audit workflow completed successfully."
+
+        logger.info("Full audit workflow completed successfully")
+        return final_results
 
     except AgentWorkflowError:
         raise
 
     except Exception as error:
-        logger.error(f"Agentic ML audit workflow failed: {error}")
+        logger.exception("Audit workflow failed.")
         raise AgentWorkflowError(
-            "Agentic ML audit workflow failed.",
+            "Audit workflow failed.",
             error_detail=str(error),
         ) from error
 
 
-def get_printable_workflow_output(state: AuditState) -> dict[str, Any]:
+def run_mlflow_tracking_safely(
+    baseline_results: dict[str, Any],
+    sample_features: Any,
+) -> dict[str, Any]:
     """
-    Remove dataframe and trained model objects for clean CLI/API output.
+    Run MLflow tracking if enabled.
+
+    MLflow failures should not break the whole audit because the core audit
+    findings are still useful.
     """
-    # NOTE: explicitly annotating `output` as dict[str, Any] (instead of
-    # letting Pylance infer the type from `dict(state)` where state is a
-    # TypedDict) avoids a confusing false-positive where Pylance picks
-    # the wrong dict()/pop() overload and reports type errors like
-    # "Iterable[list[bytes]]" or "key of type bytes" — neither of which
-    # has anything to do with this code. This is a static-analysis
-    # artifact only; it did not affect runtime behavior.
-    output: dict[str, Any] = dict(state)
+    try:
+        mlflow_enabled = as_bool(get_config_value("mlflow.enabled", True))
 
-    output.pop("df", None)
+        if not mlflow_enabled:
+            return {
+                "enabled": False,
+                "message": "MLflow tracking skipped because mlflow.enabled=false.",
+            }
 
-    if "baseline_results" in output:
-        output["baseline_results"] = dict(output["baseline_results"])
-        output["baseline_results"].pop("trained_model_objects", None)
+        return track_baseline_experiment(
+            baseline_results=baseline_results,
+            sample_input=sample_features,
+        )
 
-    return output
+    except Exception as error:
+        logger.warning("MLflow tracking failed but workflow will continue: %s", error)
+        return {
+            "enabled": True,
+            "error": str(error),
+            "message": "MLflow tracking failed, but audit workflow continued.",
+        }
+
+
+def run_explainability_safely(
+    baseline_results: dict[str, Any],
+    sample_features: Any,
+) -> dict[str, Any]:
+    """
+    Run explainability if enabled.
+
+    Explainability failures should not break the whole audit.
+    """
+    try:
+        explainability_enabled = as_bool(
+            get_config_value("explainability.enabled", False)
+        )
+
+        if not explainability_enabled:
+            return {
+                "enabled": False,
+                "available": False,
+                "message": "Explainability skipped because explainability.enabled=false.",
+            }
+
+        return run_model_explainability(
+            baseline_results=baseline_results,
+            sample_features=sample_features,
+        )
+
+    except Exception as error:
+        logger.warning("Explainability failed but workflow will continue: %s", error)
+        return {
+            "enabled": True,
+            "available": False,
+            "error": str(error),
+            "message": "Explainability failed, but audit workflow continued.",
+        }
+
+
+def save_report_safely(report: str) -> dict[str, Any]:
+    """
+    Save audit report using config-driven path.
+
+    Saving failure should not destroy completed audit results.
+    """
+    try:
+        default_report_path = str(
+            get_config_value("reports.default_report_path", "reports/audit_report.md")
+        )
+
+        return save_audit_report(
+            report=report,
+            output_path=default_report_path,
+        )
+
+    except Exception as error:
+        logger.warning("Audit report saving failed: %s", error)
+        return {
+            "report_path": None,
+            "error": str(error),
+            "message": "Audit report generation completed, but saving failed.",
+        }
+
+
+def build_report_safe_results(audit_results: dict[str, Any]) -> dict[str, Any]:
+    """
+    Remove runtime-only objects from workflow output.
+
+    This keeps API/Streamlit responses JSON-safe and avoids exposing sklearn objects.
+    """
+    cleaned = dict(audit_results)
+
+    baseline_results = cleaned.get("baseline_results")
+
+    if isinstance(baseline_results, dict):
+        cleaned["baseline_results"] = strip_runtime_objects(baseline_results)
+
+    cleaned.pop("df", None)
+
+    return cleaned
+
+
+def run_audit_workflow_without_report(
+    dataset_path: str | Path,
+    target_column: str,
+) -> dict[str, Any]:
+    """
+    Lightweight workflow variant useful for tests.
+
+    Runs deterministic checks and baseline modeling, but skips LLM report generation
+    and saving. This is useful when tests should be fast or offline.
+    """
+    try:
+        logger.info("Starting audit workflow without report")
+
+        clean_target_column = str(target_column).strip()
+
+        df = load_dataset(dataset_path)
+
+        profile = profile_dataset(df, clean_target_column)
+        problem_info = detect_problem_type(df, clean_target_column)
+        problem_type = problem_info["problem_type"]
+
+        data_quality = run_data_quality_audit(df, clean_target_column)
+        leakage = run_leakage_check(df, clean_target_column)
+
+        class_imbalance = detect_class_imbalance(
+            df=df,
+            target_column=clean_target_column,
+            problem_type=problem_type,
+        )
+
+        imbalance_severity = (
+            class_imbalance.get("imbalance_severity")
+            if class_imbalance.get("is_applicable", False)
+            else None
+        )
+
+        metric_recommendation = recommend_metrics(
+            problem_type=problem_type,
+            imbalance_severity=imbalance_severity,
+        )
+
+        baseline_results = train_baseline_models(
+            df=df,
+            target_column=clean_target_column,
+            problem_type=problem_type,
+        )
+
+        sample_features = get_sample_features_for_explainability(baseline_results)
+
+        explainability = run_explainability_safely(
+            baseline_results=baseline_results,
+            sample_features=sample_features,
+        )
+
+        result = {
+            "target_column": clean_target_column,
+            "problem_type": problem_type,
+            "dataset_path": str(dataset_path),
+            "profile": profile,
+            "problem_detection": problem_info,
+            "data_quality": data_quality,
+            "leakage": leakage,
+            "class_imbalance": class_imbalance,
+            "metric_recommendation": metric_recommendation,
+            "baseline_results": baseline_results,
+            "explainability": explainability,
+            "message": "Audit workflow without report completed successfully.",
+        }
+
+        return build_report_safe_results(result)
+
+    except Exception as error:
+        logger.exception("Audit workflow without report failed.")
+        raise AgentWorkflowError(
+            "Audit workflow without report failed.",
+            error_detail=str(error),
+        ) from error
 
 
 if __name__ == "__main__":
+    dataset_path = "data/sample/student_mark.csv"
+    target_column = "Grade"
+
     output = run_audit_workflow(
-        dataset_path="data/sample/student_mark.csv",
-        target_column="Grade",
+        dataset_path=dataset_path,
+        target_column=target_column,
     )
 
-    printable_output = get_printable_workflow_output(output)
+    printable_output = {
+        key: value
+        for key, value in output.items()
+        if key != "audit_report"
+    }
 
-    print("Problem Type:", printable_output["problem_type"])
-    print("Recommended Metrics:", printable_output["metric_recommendation"])
-    print("Best Model:", printable_output["baseline_results"]["best_model"])
-    print("MLflow:", printable_output["mlflow_results"]["message"])
-    print("Report:", printable_output["report_save_result"]["message"])
-    print("Report Path:", printable_output["report_save_result"]["report_path"])
+    print(printable_output)

@@ -8,6 +8,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from src.utils.exceptions import ConfigError
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.yaml"
@@ -21,24 +23,33 @@ def load_config(config_path: str | Path = CONFIG_PATH) -> dict[str, Any]:
     """
     Load config.yaml once and return it as a dictionary.
     """
-    path = Path(config_path)
+    try:
+        path = Path(config_path)
 
-    if not path.is_absolute():
-        path = ROOT_DIR / path
+        if not path.is_absolute():
+            path = ROOT_DIR / path
 
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
+        if not path.exists():
+            raise ConfigError(f"Config file not found: {path}")
 
-    with path.open("r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
+        with path.open("r", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
 
-    if config is None:
-        return {}
+        if config is None:
+            return {}
 
-    if not isinstance(config, dict):
-        raise ValueError("config.yaml must contain a valid YAML dictionary.")
+        if not isinstance(config, dict):
+            raise ConfigError("config.yaml must contain a valid YAML dictionary.")
 
-    return config
+        return config
+
+    except ConfigError:
+        raise
+    except Exception as exc:
+        raise ConfigError(
+            "Failed to load configuration.",
+            error_detail=str(exc),
+        ) from exc
 
 
 def reload_config() -> None:
@@ -77,6 +88,9 @@ def get_env_value(key: str, default: Any = None) -> Any:
 
 
 def get_bool_config(key_path: str, default: bool = False) -> bool:
+    """
+    Get boolean config value safely.
+    """
     value = get_config_value(key_path, default)
 
     if isinstance(value, bool):
@@ -97,7 +111,7 @@ def get_groq_api_key() -> str | None:
     if api_key is None or str(api_key).strip() == "":
         return None
 
-    return str(api_key)
+    return str(api_key).strip()
 
 
 def get_llm_config() -> dict[str, Any]:
@@ -109,5 +123,6 @@ def get_llm_config() -> dict[str, Any]:
         "model": get_config_value("llm.model", "llama-3.3-70b-versatile"),
         "temperature": float(get_config_value("llm.temperature", 0.2)),
         "max_tokens": int(get_config_value("llm.max_tokens", 2000)),
+        "timeout": int(get_config_value("llm.timeout", 120)),
         "api_key": get_groq_api_key(),
     }

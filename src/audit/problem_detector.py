@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.utils.config import get_config_value
 from src.utils.exceptions import InvalidTargetColumnError, ProblemTypeDetectionError
 from src.utils.logger import get_logger
 
@@ -45,7 +46,7 @@ def validate_target(df: pd.DataFrame, target_column: str) -> pd.Series:
 def detect_problem_type(
     df: pd.DataFrame,
     target_column: str,
-    classification_unique_threshold: int = 20,
+    classification_unique_threshold: int | None = None,
 ) -> dict[str, Any]:
     """
     Detect ML problem type from target column.
@@ -56,6 +57,11 @@ def detect_problem_type(
     - regression
     """
     try:
+        if classification_unique_threshold is None:
+            classification_unique_threshold = int(
+                get_config_value("problem_detection.classification_unique_threshold", 20)
+            )
+
         if classification_unique_threshold < 2:
             raise ProblemTypeDetectionError(
                 "classification_unique_threshold must be at least 2."
@@ -71,11 +77,9 @@ def detect_problem_type(
 
         is_numeric = bool(pd.api.types.is_numeric_dtype(target))
         is_bool = bool(pd.api.types.is_bool_dtype(target))
+        unique_ratio = float(round(unique_count / total_count, 4))
 
-        if unique_count == 2:
-            problem_type = "binary_classification"
-
-        elif is_bool:
+        if unique_count == 2 or is_bool:
             problem_type = "binary_classification"
 
         elif is_numeric:
@@ -87,17 +91,28 @@ def detect_problem_type(
         else:
             problem_type = "multiclass_classification"
 
+        confidence = get_detection_confidence(
+            problem_type=problem_type,
+            unique_count=unique_count,
+            total_count=total_count,
+            is_numeric=is_numeric,
+            classification_unique_threshold=classification_unique_threshold,
+        )
+
         result: dict[str, Any] = {
             "target_column": target_column,
             "problem_type": problem_type,
             "target_dtype": target_dtype,
             "is_numeric_target": is_numeric,
+            "is_boolean_target": is_bool,
             "unique_values": unique_count,
             "total_values": total_count,
+            "unique_ratio": unique_ratio,
             "missing_count": missing_count,
             "missing_percent": missing_percent,
             "classification_unique_threshold": int(classification_unique_threshold),
             "sample_values": get_sample_values(target),
+            "confidence": confidence,
             "reason": get_detection_reason(
                 problem_type=problem_type,
                 unique_count=unique_count,
@@ -107,13 +122,14 @@ def detect_problem_type(
             ),
         }
 
-        logger.info(f"Problem type detected: {problem_type}")
+        logger.info("Problem type detected: %s", problem_type)
         return result
 
     except (InvalidTargetColumnError, ProblemTypeDetectionError):
         raise
 
     except Exception as error:
+        logger.exception("Failed to detect problem type.")
         raise ProblemTypeDetectionError(
             "Failed to detect problem type.",
             error_detail=str(error),
@@ -128,6 +144,40 @@ def get_sample_values(target: pd.Series, max_values: int = 10) -> list[str]:
     return [str(value) for value in values]
 
 
+def get_detection_confidence(
+    problem_type: str,
+    unique_count: int,
+    total_count: int,
+    is_numeric: bool,
+    classification_unique_threshold: int,
+) -> str:
+    """
+    Return a simple confidence label for the detected problem type.
+    """
+    if total_count <= 0:
+        return "low"
+
+    unique_ratio = unique_count / total_count
+
+    if problem_type == "binary_classification":
+        return "high"
+
+    if problem_type == "multiclass_classification" and not is_numeric:
+        return "high"
+
+    if problem_type == "multiclass_classification" and is_numeric:
+        if unique_count <= max(10, classification_unique_threshold // 2):
+            return "high"
+        return "medium"
+
+    if problem_type == "regression":
+        if is_numeric and unique_ratio > 0.1:
+            return "high"
+        return "medium"
+
+    return "medium"
+
+
 def get_detection_reason(
     problem_type: str,
     unique_count: int,
@@ -139,7 +189,10 @@ def get_detection_reason(
     Explain why the problem type was selected.
     """
     if problem_type == "binary_classification":
-        return "Target has exactly 2 unique values, so it is treated as binary classification."
+        return (
+            "Target has exactly 2 unique values or boolean dtype, "
+            "so it is treated as binary classification."
+        )
 
     if problem_type == "multiclass_classification" and is_numeric:
         return (

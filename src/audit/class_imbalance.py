@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 
 from src.utils.config import get_config_value
-from src.utils.exceptions import AuditCopilotException
+from src.utils.exceptions import AuditCopilotException, ClassImbalanceError
 from src.utils.logger import get_logger
 
 
@@ -25,7 +25,7 @@ def detect_class_imbalance(
     try:
         logger.info("Starting class imbalance detection")
 
-        _validate_inputs(df, target_column, problem_type)
+        validate_inputs(df, target_column, problem_type)
 
         normalized_problem_type = problem_type.lower().strip()
 
@@ -38,17 +38,17 @@ def detect_class_imbalance(
             }
 
         if normalized_problem_type not in CLASSIFICATION_TYPES:
-            raise AuditCopilotException(
+            raise ClassImbalanceError(
                 f"Unsupported problem type: {normalized_problem_type}"
             )
 
         target_series = df[target_column].dropna()
 
         if target_series.empty:
-            raise AuditCopilotException("Target column has no valid non-null values.")
+            raise ClassImbalanceError("Target column has no valid non-null values.")
 
         if target_series.nunique(dropna=True) < 2:
-            raise AuditCopilotException(
+            raise ClassImbalanceError(
                 "Target column must contain at least 2 unique classes."
             )
 
@@ -62,8 +62,7 @@ def detect_class_imbalance(
         minority_count = int(value_counts.min())
         total_valid_rows = int(len(target_series))
 
-        imbalance_ratio = round(majority_count / minority_count, 2)
-
+        imbalance_ratio = float(round(majority_count / minority_count, 2))
         severity = get_imbalance_severity(imbalance_ratio)
         rare_classes = get_rare_classes(value_percentages)
 
@@ -74,7 +73,9 @@ def detect_class_imbalance(
             "total_rows": int(len(df)),
             "valid_target_rows": total_valid_rows,
             "missing_target_rows": int(df[target_column].isna().sum()),
-            "missing_target_percent": float(round(df[target_column].isna().mean() * 100, 2)),
+            "missing_target_percent": float(
+                round(df[target_column].isna().mean() * 100, 2)
+            ),
             "num_classes": int(value_counts.shape[0]),
             "class_counts": {
                 str(label): int(count)
@@ -88,9 +89,12 @@ def detect_class_imbalance(
             "minority_class": str(minority_class),
             "majority_count": majority_count,
             "minority_count": minority_count,
-            "imbalance_ratio": float(imbalance_ratio),
+            "imbalance_ratio": imbalance_ratio,
             "imbalance_severity": severity,
             "rare_classes": rare_classes,
+            "rare_class_threshold_percent": float(
+                get_config_value("imbalance.rare_class_threshold_percent", 5)
+            ),
             "recommended_metrics": recommend_metrics_for_imbalance(
                 problem_type=normalized_problem_type,
                 severity=severity,
@@ -99,36 +103,47 @@ def detect_class_imbalance(
             "warning": get_warning(severity, rare_classes),
         }
 
-        logger.info("Class imbalance detection completed successfully")
+        logger.info(
+            "Class imbalance detection completed. Severity=%s Ratio=%s",
+            severity,
+            imbalance_ratio,
+        )
+
         return result
 
-    except AuditCopilotException:
+    except ClassImbalanceError:
         raise
 
+    except AuditCopilotException as error:
+        raise ClassImbalanceError(
+            "Class imbalance detection failed.",
+            error_detail=str(error),
+        ) from error
+
     except Exception as error:
-        logger.error(f"Class imbalance detection failed: {error}")
-        raise AuditCopilotException(
+        logger.exception("Class imbalance detection failed.")
+        raise ClassImbalanceError(
             "Class imbalance detection failed.",
             error_detail=str(error),
         ) from error
 
 
-def _validate_inputs(
+def validate_inputs(
     df: pd.DataFrame,
     target_column: str,
     problem_type: str,
 ) -> None:
     if df is None or df.empty:
-        raise AuditCopilotException("Input dataframe is empty.")
+        raise ClassImbalanceError("Input dataframe is empty.")
 
     if target_column is None or str(target_column).strip() == "":
-        raise AuditCopilotException("Target column is required.")
+        raise ClassImbalanceError("Target column is required.")
 
     if target_column not in df.columns:
-        raise AuditCopilotException(f"Target column not found: {target_column}")
+        raise ClassImbalanceError(f"Target column not found: {target_column}")
 
     if problem_type is None or str(problem_type).strip() == "":
-        raise AuditCopilotException("Problem type is required.")
+        raise ClassImbalanceError("Problem type is required.")
 
 
 def get_imbalance_severity(imbalance_ratio: float) -> str:
@@ -220,7 +235,9 @@ def recommend_actions(
         actions.append("Consider resampling only after creating a proper train split.")
 
     if rare_classes:
-        actions.append("Rare classes detected; verify whether they are valid labels or data errors.")
+        actions.append(
+            "Rare classes detected; verify whether they are valid labels or data errors."
+        )
 
     return actions
 

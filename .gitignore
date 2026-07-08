@@ -1,29 +1,51 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
 # Virtual environments
-.venv
+.venv/
 venv/
 env/
 
+# Environment files
 .env
 .env.*
 
+# Uploads / runtime data
 data/uploads/
 
-mlruns/
-
-# Runtime-generated artifacts — these change on every audit run and
-# should never be committed. Previously missing from .gitignore, so
-# logs/app.log, reports/audit_report.md, and artifacts/mlflow_temp/*
-# were all tracked in git and kept accumulating stale run data.
+# Logs
 logs/
+*.log
+
+# Reports
 reports/*.md
+reports/*.json
+reports/*.html
+reports/*.pdf
 !reports/.gitkeep
+
+# Artifacts
 artifacts/
+mlruns/
 mlflow.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test/cache
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/

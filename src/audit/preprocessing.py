@@ -16,7 +16,6 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
 CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
 
 
@@ -34,20 +33,53 @@ def validate_preprocessing_inputs(df: pd.DataFrame, target_column: str) -> None:
         raise PreprocessingError("Dataset must contain at least one feature column.")
 
 
+def detect_datetime_columns(df: pd.DataFrame) -> list[str]:
+    datetime_columns: list[str] = []
+
+    for column in df.columns:
+        series = df[column]
+
+        if pd.api.types.is_datetime64_any_dtype(series):
+            datetime_columns.append(column)
+            continue
+
+        if not pd.api.types.is_object_dtype(series):
+            continue
+
+        sample = series.dropna().astype(str).head(100)
+
+        if sample.empty:
+            continue
+
+        parsed = pd.to_datetime(sample, errors="coerce", format="mixed")
+        valid_ratio = parsed.notna().mean()
+
+        if valid_ratio >= 0.8:
+            datetime_columns.append(column)
+
+    return datetime_columns
+
+
 def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[str]]:
     features = df.drop(columns=[target_column])
 
-    datetime_columns = features.select_dtypes(
-        include=["datetime64", "datetimetz"]
-    ).columns.tolist()
+    datetime_columns = detect_datetime_columns(features)
 
     numeric_columns = features.select_dtypes(include=["number"]).columns.tolist()
 
+    boolean_columns = features.select_dtypes(include=["bool"]).columns.tolist()
+
     categorical_columns = features.select_dtypes(
-        include=["object", "category", "string", "bool"]
+        include=["object", "category", "string"]
     ).columns.tolist()
 
-    known_columns = set(numeric_columns + categorical_columns + datetime_columns)
+    categorical_columns = [
+        col for col in categorical_columns if col not in datetime_columns
+    ]
+
+    known_columns = set(
+        numeric_columns + categorical_columns + datetime_columns + boolean_columns
+    )
 
     unsupported_columns = [
         column for column in features.columns if column not in known_columns
@@ -55,38 +87,40 @@ def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[
 
     return {
         "numeric_columns": numeric_columns,
-        "categorical_columns": categorical_columns,
+        "categorical_columns": categorical_columns + boolean_columns,
         "datetime_columns": datetime_columns,
         "unsupported_columns": unsupported_columns,
     }
 
 
 def extract_datetime_features(datetime_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert datetime columns into numeric calendar features.
-    """
     output = pd.DataFrame(index=datetime_df.index)
 
     for column in datetime_df.columns:
-        series = pd.to_datetime(datetime_df[column], errors="coerce")
+        series = pd.to_datetime(datetime_df[column], errors="coerce", format="mixed")
 
         output[f"{column}_year"] = series.dt.year
         output[f"{column}_month"] = series.dt.month
         output[f"{column}_day"] = series.dt.day
         output[f"{column}_dayofweek"] = series.dt.dayofweek
-        output[f"{column}_is_month_start"] = series.dt.is_month_start.astype("float")
-        output[f"{column}_is_month_end"] = series.dt.is_month_end.astype("float")
+        output[f"{column}_quarter"] = series.dt.quarter
+        output[f"{column}_is_month_start"] = series.dt.is_month_start.astype(float)
+        output[f"{column}_is_month_end"] = series.dt.is_month_end.astype(float)
 
     return output
+
+
+def make_one_hot_encoder() -> OneHotEncoder:
+    try:
+        return OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        return OneHotEncoder(handle_unknown="ignore", sparse=False)
 
 
 def build_preprocessing_pipeline(
     df: pd.DataFrame,
     target_column: str,
 ) -> dict[str, Any]:
-    """
-    Build reusable sklearn preprocessing pipeline.
-    """
     try:
         logger.info("Starting preprocessing pipeline creation")
 
@@ -99,23 +133,27 @@ def build_preprocessing_pipeline(
         datetime_columns = column_info["datetime_columns"]
         unsupported_columns = column_info["unsupported_columns"]
 
-        numeric_pipeline = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]
+        numeric_imputer_strategy = get_config_value(
+            "preprocessing.numeric_imputer_strategy", "median"
         )
+        categorical_imputer_strategy = get_config_value(
+            "preprocessing.categorical_imputer_strategy", "most_frequent"
+        )
+        scale_numeric = bool(get_config_value("preprocessing.scale_numeric", True))
+
+        numeric_steps: list[tuple[str, Any]] = [
+            ("imputer", SimpleImputer(strategy=numeric_imputer_strategy))
+        ]
+
+        if scale_numeric:
+            numeric_steps.append(("scaler", StandardScaler()))
+
+        numeric_pipeline = Pipeline(steps=numeric_steps)
 
         categorical_pipeline = Pipeline(
             steps=[
-                ("imputer", SimpleImputer(strategy="most_frequent")),
-                (
-                    "encoder",
-                    OneHotEncoder(
-                        handle_unknown="ignore",
-                        sparse_output=False,
-                    ),
-                ),
+                ("imputer", SimpleImputer(strategy=categorical_imputer_strategy)),
+                ("encoder", make_one_hot_encoder()),
             ]
         )
 
@@ -123,17 +161,14 @@ def build_preprocessing_pipeline(
             steps=[
                 (
                     "datetime_features",
-                    FunctionTransformer(
-                        extract_datetime_features,
-                        validate=False,
-                    ),
+                    FunctionTransformer(extract_datetime_features, validate=False),
                 ),
                 ("imputer", SimpleImputer(strategy="median")),
                 ("scaler", StandardScaler()),
             ]
         )
 
-        transformers = []
+        transformers: list[tuple[str, Pipeline, list[str]]] = []
 
         if numeric_columns:
             transformers.append(("numeric", numeric_pipeline, numeric_columns))
@@ -152,14 +187,14 @@ def build_preprocessing_pipeline(
         preprocessor = ColumnTransformer(
             transformers=transformers,
             remainder="drop",
+            verbose_feature_names_out=False,
         )
 
-        warnings: list[str] = []
-
-        if unsupported_columns:
-            warnings.append(
-                "Unsupported feature columns will be dropped during preprocessing."
-            )
+        warnings = build_preprocessing_warnings(
+            df=df,
+            categorical_columns=categorical_columns,
+            unsupported_columns=unsupported_columns,
+        )
 
         result: dict[str, Any] = {
             "preprocessor": preprocessor,
@@ -181,26 +216,48 @@ def build_preprocessing_pipeline(
         raise
 
     except Exception as error:
-        logger.error(f"Preprocessing pipeline creation failed: {error}")
+        logger.exception("Preprocessing pipeline creation failed.")
         raise PreprocessingError(
             "Preprocessing pipeline creation failed.",
             error_detail=str(error),
         ) from error
 
 
-def clean_target_rows(
+def build_preprocessing_warnings(
     df: pd.DataFrame,
-    target_column: str,
-) -> pd.DataFrame:
-    """
-    Remove rows where target is missing.
-    """
+    categorical_columns: list[str],
+    unsupported_columns: list[str],
+) -> list[str]:
+    warnings: list[str] = []
+
+    high_cardinality_threshold = int(
+        get_config_value("audit.high_cardinality_threshold", 50)
+    )
+
+    if unsupported_columns:
+        warnings.append(
+            f"Unsupported feature columns will be dropped: {unsupported_columns}"
+        )
+
+    for column in categorical_columns:
+        unique_count = int(df[column].nunique(dropna=True))
+
+        if unique_count >= high_cardinality_threshold:
+            warnings.append(
+                f"Column '{column}' has high cardinality "
+                f"({unique_count} unique values). One-hot encoding may create many columns."
+            )
+
+    return warnings
+
+
+def clean_target_rows(df: pd.DataFrame, target_column: str) -> pd.DataFrame:
     before_rows = len(df)
     cleaned_df = df.dropna(subset=[target_column]).copy()
     dropped_rows = before_rows - len(cleaned_df)
 
     if dropped_rows > 0:
-        logger.warning(f"Dropped {dropped_rows} rows with missing target values.")
+        logger.warning("Dropped %s rows with missing target values.", dropped_rows)
 
     if cleaned_df.empty:
         raise PreprocessingError("No rows left after removing missing target values.")
@@ -213,9 +270,6 @@ def split_features_target(
     target_column: str,
     drop_missing_target: bool = True,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """
-    Split dataframe into feature matrix X and target vector y.
-    """
     try:
         logger.info("Splitting features and target")
 
@@ -232,17 +286,14 @@ def split_features_target(
         raise
 
     except Exception as error:
-        logger.error(f"Feature-target split failed: {error}")
+        logger.exception("Feature-target split failed.")
         raise PreprocessingError(
             "Feature-target split failed.",
             error_detail=str(error),
         ) from error
 
 
-def can_use_stratify(
-    target: pd.Series,
-    test_size: float,
-) -> bool:
+def can_use_stratify(target: pd.Series, test_size: float) -> bool:
     class_counts = target.value_counts()
     number_of_classes = target.nunique(dropna=True)
 
@@ -281,9 +332,6 @@ def create_train_test_split(
     test_size: float | None = None,
     random_state: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    """
-    Create train-test split.
-    """
     try:
         logger.info("Starting train-test split")
 
@@ -314,11 +362,9 @@ def create_train_test_split(
         normalized_problem_type = problem_type.lower().strip()
         stratify = None
 
-        if normalized_problem_type in CLASSIFICATION_TYPES and can_use_stratify(
-            target,
-            test_size,
-        ):
-            stratify = target
+        if normalized_problem_type in CLASSIFICATION_TYPES:
+            if can_use_stratify(target, test_size):
+                stratify = target
 
         train_features, test_features, train_target, test_target = train_test_split(
             features,
@@ -328,7 +374,11 @@ def create_train_test_split(
             stratify=stratify,
         )
 
-        logger.info("Train-test split completed successfully")
+        logger.info(
+            "Train-test split completed successfully. Train=%s Test=%s",
+            train_features.shape,
+            test_features.shape,
+        )
 
         return train_features, test_features, train_target, test_target
 
@@ -336,9 +386,34 @@ def create_train_test_split(
         raise
 
     except Exception as error:
-        logger.error(f"Train-test split failed: {error}")
+        logger.exception("Train-test split failed.")
         raise PreprocessingError(
             "Train-test split failed.",
+            error_detail=str(error),
+        ) from error
+
+
+def transform_train_test_data(
+    preprocessor: ColumnTransformer,
+    train_features: pd.DataFrame,
+    test_features: pd.DataFrame,
+) -> tuple[Any, Any]:
+    try:
+        X_train_processed = preprocessor.fit_transform(train_features)
+        X_test_processed = preprocessor.transform(test_features)
+
+        logger.info(
+            "Preprocessing transform completed. X_train=%s X_test=%s",
+            getattr(X_train_processed, "shape", None),
+            getattr(X_test_processed, "shape", None),
+        )
+
+        return X_train_processed, X_test_processed
+
+    except Exception as error:
+        logger.exception("Preprocessing transform failed.")
+        raise PreprocessingError(
+            "Preprocessing transform failed.",
             error_detail=str(error),
         ) from error
 
@@ -379,5 +454,13 @@ if __name__ == "__main__":
         problem_type="binary_classification",
     )
 
+    X_train_processed, X_test_processed = transform_train_test_data(
+        preprocessor=pipeline_info["preprocessor"],
+        train_features=X_train,
+        test_features=X_test,
+    )
+
     print("X_train shape:", X_train.shape)
     print("X_test shape:", X_test.shape)
+    print("X_train processed shape:", X_train_processed.shape)
+    print("X_test processed shape:", X_test_processed.shape)

@@ -1,18 +1,45 @@
 project:
   name: "Agentic ML Audit Copilot"
-  version: "0.1.0"
+  version: "1.0.0"
+  author: "Shivam Rajput"
+  license: "MIT"
+
+random_seed: 42
 
 logging:
   log_level: "INFO"
+  console_logging: true
+  file_logging: true
   log_file: "logs/app.log"
   max_bytes: 5000000
-  backup_count: 3
+  backup_count: 5
+
+dataset:
+  max_rows: 1000000
+  sample_large_dataset: true
+  profiling_sample_rows: 100000
+  allowed_extensions:
+    - ".csv"
+  max_categories: 10
 
 audit:
   high_missing_threshold: 50
   high_cardinality_threshold: 50
   id_unique_percent_threshold: 95
   near_constant_threshold: 95
+
+missing_values:
+  warning_threshold: 20
+  high_threshold: 50
+
+outliers:
+  enabled: true
+  method: "iqr"
+  iqr_multiplier: 1.5
+
+correlation:
+  enabled: true
+  threshold: 0.90
 
 imbalance:
   low_ratio_threshold: 1.5
@@ -25,6 +52,28 @@ leakage:
   classification_proxy_threshold: 0.75
   duplicate_target_threshold: 0.95
   encoded_target_correlation_threshold: 0.90
+  target_like_keywords:
+    - "target"
+    - "label"
+    - "outcome"
+    - "result"
+    - "final_result"
+    - "prediction"
+    - "predicted"
+    - "actual"
+    - "ground_truth"
+    - "grade"
+    - "score"
+    - "rank"
+    - "pass"
+    - "fail"
+    - "status"
+    - "class"
+    - "total"
+
+metrics:
+  classification_default: "f1_weighted"
+  regression_default: "rmse"
 
 training:
   test_size: 0.2
@@ -35,28 +84,72 @@ modeling:
   random_state: 42
   cv_folds: 5
   enable_cross_validation: false
+  max_training_time_seconds: 300
+  random_forest_estimators: 200
+  random_forest_min_samples_leaf: 2
+  logistic_max_iter: 1000
 
 mlflow:
   enabled: true
   tracking_uri: null
   experiment_name: "agentic_ml_audit_baselines"
   log_models: true
+  log_artifacts: true
   artifact_path: "baseline_model"
+
+cache:
+  enabled: true
+  directory: ".cache"
+
+performance:
+  parallel_jobs: -1
 
 api:
   max_upload_mb: 25
   cleanup_uploaded_files: true
+  allowed_extensions:
+    - ".csv"
 
 streamlit:
   max_upload_mb: 25
   cleanup_uploaded_files: false
+  theme: "dark"
+  allowed_extensions:
+    - ".csv"
 
 reports:
   output_dir: "reports"
   default_report_path: "reports/audit_report.md"
+  save_json: true
+  save_markdown: true
 
 llm:
   provider: "groq"
   model: "llama-3.3-70b-versatile"
   temperature: 0.2
   max_tokens: 2000
+  timeout: 120
+
+security:
+  allow_pickle_loading: false
+
+drift:
+  enabled: false
+
+explainability:
+  enabled: true
+  run_shap: true
+  max_samples: 200
+  top_n_features: 20
+
+visualization:
+  dpi: 150
+  style: "plotly"
+
+problem_detection:
+  classification_unique_threshold: 20
+
+preprocessing:
+  numeric_imputer_strategy: "median"
+  categorical_imputer_strategy: "most_frequent"
+  scale_numeric: true

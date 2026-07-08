@@ -7,77 +7,271 @@ from typing import Any, Dict, Optional
 
 from groq import Groq
 
-from src.utils.config import get_llm_config
-from src.utils.exceptions import AuditCopilotException
+from src.utils.config import get_config_value, get_llm_config
+from src.utils.exceptions import AuditCopilotException, LLMReportError
 from src.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
 
 
-def extract_report_context(audit_results: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract a clean, JSON-safe audit context for LLM report generation.
+REPORT_TITLE = "Agentic ML Audit Report"
+DEFAULT_REPORT_PATH = "reports/audit_report.md"
+DEFAULT_CONTEXT_PATH = "reports/audit_context.json"
 
-    This function removes heavy runtime objects such as DataFrames,
-    fitted models, sklearn pipelines, and other non-serializable objects.
-    The LLM receives only deterministic Python-generated audit results.
+
+SYSTEM_REPORT_PROMPT = (
+    "You are a Senior Machine Learning Auditor. "
+    "You only explain deterministic Python audit results. "
+    "Never invent numbers. "
+    "Never estimate values. "
+    "Never calculate metrics. "
+    "Never contradict the provided audit context. "
+    "Always write in plain English only."
+)
+
+
+SYSTEM_CHAT_PROMPT = (
+    "You are an ML Audit Copilot. Answer only from the completed audit context. "
+    "Never invent numbers. Never perform new ML computations. "
+    "Always reply in plain English, regardless of what language the user's question is written in."
+)
+
+
+def _safe_get(mapping: Dict[str, Any], key: str, default: Any = None) -> Any:
+    value = mapping.get(key, default)
+    return default if value is None else value
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.lower().strip() in {"true", "1", "yes", "y"}
+
+    return bool(value)
+
+
+def _json_safe(data: Any) -> Any:
+    """
+    Convert audit data into JSON-safe values and remove heavy runtime objects.
+    """
+    blocked_keys = {
+        "trained_model_objects",
+        "preprocessor",
+        "pipeline",
+        "model_object",
+        "dataframe",
+        "df",
+        "x_train",
+        "x_test",
+        "y_train",
+        "y_test",
+    }
+
+    if isinstance(data, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, value in data.items():
+            key_str = str(key)
+            if key_str.lower() in blocked_keys:
+                continue
+            cleaned[key_str] = _json_safe(value)
+        return cleaned
+
+    if isinstance(data, list):
+        return [_json_safe(item) for item in data]
+
+    if isinstance(data, tuple):
+        return [_json_safe(item) for item in data]
+
+    if isinstance(data, (str, int, float, bool)) or data is None:
+        return data
+
+    return str(data)
+
+
+def _get_groq_client(api_key: str) -> Groq:
+    """
+    Create Groq client. Timeout is handled by the request method when supported.
+    """
+    return Groq(api_key=api_key)
+
+
+def _get_llm_runtime_config(default_max_tokens: int) -> Dict[str, Any]:
+    llm_config = get_llm_config()
+
+    return {
+        "api_key": llm_config.get("api_key"),
+        "model": llm_config.get("model", "llama-3.3-70b-versatile"),
+        "temperature": float(llm_config.get("temperature", 0.2)),
+        "max_tokens": int(llm_config.get("max_tokens", default_max_tokens)),
+        "timeout": int(llm_config.get("timeout", 120)),
+    }
+
+
+def _call_groq_chat(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens_default: int,
+) -> Optional[str]:
+    """
+    Call Groq chat completion safely. Returns None if unavailable or failed.
     """
     try:
-        profile = audit_results.get("profile", {})
-        data_quality = audit_results.get("data_quality", {})
-        leakage = audit_results.get("leakage", {})
-        metric_recommendation = audit_results.get("metric_recommendation", {})
-        class_imbalance = audit_results.get("class_imbalance", {})
-        baseline_results = audit_results.get("baseline_results", {})
-        mlflow_results = audit_results.get("mlflow_results", {})
+        runtime = _get_llm_runtime_config(default_max_tokens=max_tokens_default)
+        api_key = runtime.get("api_key")
 
-        dataset_shape = profile.get("shape", {})
+        if not api_key:
+            logger.warning("GROQ_API_KEY not found. Using deterministic fallback.")
+            return None
+
+        client = _get_groq_client(str(api_key))
+
+        logger.info("Calling Groq model: %s", runtime["model"])
+
+        response = client.chat.completions.create(
+            model=str(runtime["model"]),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=float(runtime["temperature"]),
+            max_tokens=int(runtime["max_tokens"]),
+            timeout=int(runtime["timeout"]),
+        )
+
+        content = response.choices[0].message.content
+
+        if not content or not content.strip():
+            logger.warning("Groq returned empty content.")
+            return None
+
+        return content.strip()
+
+    except TypeError:
+        # Some Groq client versions may not support timeout as a request parameter.
+        try:
+            runtime = _get_llm_runtime_config(default_max_tokens=max_tokens_default)
+            api_key = runtime.get("api_key")
+
+            if not api_key:
+                return None
+
+            client = _get_groq_client(str(api_key))
+            response = client.chat.completions.create(
+                model=str(runtime["model"]),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=float(runtime["temperature"]),
+                max_tokens=int(runtime["max_tokens"]),
+            )
+
+            content = response.choices[0].message.content
+            return content.strip() if content and content.strip() else None
+
+        except Exception as error:
+            logger.warning("Groq call failed after retry without timeout: %s", error)
+            return None
+
+    except Exception as error:
+        logger.warning("Groq call failed. Using fallback if available. Error: %s", error)
+        return None
+
+
+def extract_report_context(audit_results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract a clean, JSON-safe audit context for report generation.
+
+    The LLM receives only deterministic Python-generated audit results.
+    Heavy objects such as fitted models, DataFrames, and sklearn pipelines are removed.
+    """
+    try:
+        if not isinstance(audit_results, dict):
+            raise LLMReportError("audit_results must be a dictionary.")
+
+        profile = audit_results.get("profile", {}) or {}
+        data_quality = audit_results.get("data_quality", {}) or {}
+        leakage = audit_results.get("leakage", {}) or {}
+        metric_recommendation = audit_results.get("metric_recommendation", {}) or {}
+        class_imbalance = audit_results.get("class_imbalance", {}) or {}
+        baseline_results = audit_results.get("baseline_results", {}) or {}
+        mlflow_results = audit_results.get("mlflow_results", {}) or {}
+
+        dataset_shape = profile.get("shape", {}) or {}
         rows = dataset_shape.get("rows", "N/A")
         columns = dataset_shape.get("columns", "N/A")
 
-        return {
-            "generated_at": datetime.now().isoformat(),
+        feature_count: int | str = "N/A"
+        if isinstance(columns, int) and columns > 0:
+            feature_count = max(columns - 1, 0)
+
+        target_summary = profile.get("target_summary", {}) or {}
+        target_distribution = target_summary.get("distribution", {})
+        if not target_distribution:
+            target_distribution = profile.get("target_distribution", {}) or {}
+
+        context = {
+            "metadata": {
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "project_name": get_config_value(
+                    "project.name", "Agentic ML Audit Copilot"
+                ),
+                "project_version": get_config_value("project.version", "unknown"),
+                "report_type": "ml_audit_report",
+            },
             "target_column": audit_results.get("target_column", "N/A"),
             "problem_type": audit_results.get("problem_type", "N/A"),
             "dataset_overview": {
                 "rows": rows,
                 "columns": columns,
                 "sample_count": rows,
-                "feature_count": (
-                    columns - 1
-                    if isinstance(columns, int) and columns > 0
-                    else "N/A"
-                ),
+                "feature_count": feature_count,
                 "column_names": profile.get("columns", []),
                 "numeric_columns": profile.get("numeric_columns", []),
                 "categorical_columns": profile.get("categorical_columns", []),
                 "datetime_columns": profile.get("datetime_columns", []),
+                "boolean_columns": profile.get("boolean_columns", []),
+                "other_columns": profile.get("other_columns", []),
+                "memory_usage_mb": profile.get("memory_usage_mb", "N/A"),
                 "duplicate_rows": profile.get("duplicate_rows", "N/A"),
-                "target_summary": profile.get("target_summary", {}),
-                # BUG FIX: profiler.py never produces a top-level
-                # "target_distribution" key — the real data lives at
-                # profile["target_summary"]["distribution"]. Reading the
-                # wrong key meant this was always an empty dict, so the
-                # LLM report and fallback report silently lost the actual
-                # class/value distribution of the target column.
-                "target_distribution": profile.get("target_summary", {}).get(
-                    "distribution", {}
-                ),
+                "duplicate_rows_percent": profile.get("duplicate_rows_percent", "N/A"),
+                "target_summary": target_summary,
+                "target_distribution": target_distribution,
+                "profile_warnings": profile.get("warnings", []),
             },
             "data_quality": {
-                "missing_values": data_quality.get("missing_values", {}),
+                "missing_values": data_quality.get(
+                    "missing_values", profile.get("missing_values", {})
+                ),
                 "high_missing_columns": data_quality.get("high_missing_columns", []),
-                "duplicate_rows": data_quality.get("duplicate_rows", 0),
+                "duplicate_rows": data_quality.get(
+                    "duplicate_rows", profile.get("duplicate_rows", 0)
+                ),
                 "duplicate_rows_percent": data_quality.get(
-                    "duplicate_rows_percent", 0.0
+                    "duplicate_rows_percent",
+                    profile.get("duplicate_rows_percent", 0.0),
                 ),
-                "constant_columns": data_quality.get("constant_columns", []),
+                "constant_columns": data_quality.get(
+                    "constant_columns", profile.get("constant_columns", [])
+                ),
+                "near_constant_columns": data_quality.get(
+                    "near_constant_columns", profile.get("near_constant_columns", [])
+                ),
                 "high_cardinality_columns": data_quality.get(
-                    "high_cardinality_columns", []
+                    "high_cardinality_columns",
+                    profile.get("high_cardinality_columns", []),
                 ),
-                "possible_id_columns": data_quality.get("possible_id_columns", []),
-                "warnings": data_quality.get("warnings", []),
+                "possible_id_columns": data_quality.get(
+                    "possible_id_columns", profile.get("identifier_columns", [])
+                ),
+                "null_only_columns": data_quality.get(
+                    "null_only_columns", profile.get("null_only_columns", [])
+                ),
+                "warnings": data_quality.get("warnings", profile.get("warnings", [])),
             },
             "leakage": {
                 "target_column": leakage.get("target_column", "N/A"),
@@ -100,7 +294,10 @@ def extract_report_context(audit_results: Dict[str, Any]) -> Dict[str, Any]:
                     "recommended_metrics", []
                 ),
                 "primary_metric": metric_recommendation.get("primary_metric", "N/A"),
+                "scoring_metric": metric_recommendation.get("scoring_metric", "N/A"),
+                "secondary_metrics": metric_recommendation.get("secondary_metrics", []),
                 "reason": metric_recommendation.get("reason", "N/A"),
+                "notes": metric_recommendation.get("notes", []),
             },
             "class_imbalance": class_imbalance or {},
             "baseline_results": {
@@ -110,16 +307,26 @@ def extract_report_context(audit_results: Dict[str, Any]) -> Dict[str, Any]:
                 "message": baseline_results.get("message", ""),
             },
             "mlflow_results": {
+                "enabled": mlflow_results.get("enabled", True),
                 "experiment_name": mlflow_results.get("experiment_name", ""),
                 "models_logged": mlflow_results.get("models_logged", []),
                 "best_model": mlflow_results.get("best_model", {}),
+                "logged_model_uri": mlflow_results.get("logged_model_uri", None),
                 "message": mlflow_results.get("message", ""),
             },
         }
 
-    except Exception as e:
-        logger.error(f"Report context extraction failed: {e}")
-        raise AuditCopilotException(f"Report context extraction failed: {e}") from e
+        return _json_safe(context)
+
+    except LLMReportError:
+        raise
+
+    except Exception as error:
+        logger.exception("Report context extraction failed.")
+        raise LLMReportError(
+            "Report context extraction failed.",
+            error_detail=str(error),
+        ) from error
 
 
 def build_llm_prompt(report_context: Dict[str, Any]) -> str:
@@ -155,10 +362,7 @@ CRITICAL RULES:
 13. Explain why each major finding matters for ML training.
 14. Keep the report interview-friendly and practical.
 15. Avoid generic phrases like "As an AI", "In conclusion", or "It is important to note".
-16. Write the entire report in plain English only — regardless of any
-    language used inside the structured audit results (e.g. column
-    names, values). Do not switch to Hindi, Hinglish, or any other
-    language at any point.
+16. Write the entire report in plain English only — regardless of any language used inside the structured audit results.
 
 Writing style:
 - Professional but clear.
@@ -196,61 +400,40 @@ def generate_report_with_groq(report_context: Dict[str, Any]) -> Optional[str]:
     Generate a Markdown audit report using Groq LLM.
 
     Returns None when the LLM is unavailable, unconfigured, or fails.
-    The caller should use the deterministic fallback report in that case.
     """
-    try:
-        llm_config = get_llm_config()
+    prompt = build_llm_prompt(report_context)
+    return _call_groq_chat(
+        system_prompt=SYSTEM_REPORT_PROMPT,
+        user_prompt=prompt,
+        max_tokens_default=2000,
+    )
 
-        api_key = llm_config.get("api_key")
-        model = llm_config.get("model", "llama-3.3-70b-versatile")
-        temperature = float(llm_config.get("temperature", 0.2))
-        max_tokens = int(llm_config.get("max_tokens", 2000))
 
-        if not api_key:
-            logger.warning("GROQ_API_KEY not found. Using fallback report.")
-            return None
+def _format_list(values: Any) -> str:
+    if not values:
+        return "None"
 
-        logger.info(f"Generating LLM audit report using Groq model: {model}")
+    if isinstance(values, list):
+        return ", ".join(str(value) for value in values) if values else "None"
 
-        client = Groq(api_key=api_key)
-        prompt = build_llm_prompt(report_context)
+    return str(values)
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a Senior Machine Learning Auditor. "
-                        "You only explain deterministic Python audit results. "
-                        "Never invent numbers. "
-                        "Never estimate values. "
-                        "Never calculate metrics. "
-                        "Never contradict the provided audit context. "
-                        "Always write in plain English only."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
 
-        report = response.choices[0].message.content
+def _get_dataset_health(warnings: list[Any]) -> tuple[str, str]:
+    if not warnings or warnings == ["No major basic data quality issues detected."]:
+        return "Good", "No major basic data quality issues were detected."
 
-        if not report or not report.strip():
-            logger.warning("Groq returned an empty report. Using fallback report.")
-            return None
+    return "Needs Review", "Some data quality warnings were detected."
 
-        logger.info("Groq LLM audit report generated successfully")
-        return report.strip()
 
-    except Exception as e:
-        logger.warning(f"Groq LLM report failed. Using fallback report. Error: {e}")
-        return None
+def _get_leakage_summary(leakage_count: int) -> tuple[str, str]:
+    if leakage_count == 0:
+        return "Low", "No possible leakage risks were detected."
+
+    if leakage_count <= 3:
+        return "Medium", "Some possible leakage risks were detected and should be reviewed."
+
+    return "High", "Multiple possible leakage risks were detected and require careful review."
 
 
 def build_fallback_report(report_context: Dict[str, Any]) -> str:
@@ -260,47 +443,26 @@ def build_fallback_report(report_context: Dict[str, Any]) -> str:
     try:
         logger.info("Building fallback audit report")
 
-        dataset = report_context.get("dataset_overview", {})
-        data_quality = report_context.get("data_quality", {})
-        leakage = report_context.get("leakage", {})
-        metrics = report_context.get("metric_recommendation", {})
-        imbalance = report_context.get("class_imbalance", {})
-        baseline = report_context.get("baseline_results", {})
-        mlflow = report_context.get("mlflow_results", {})
+        metadata = report_context.get("metadata", {}) or {}
+        dataset = report_context.get("dataset_overview", {}) or {}
+        data_quality = report_context.get("data_quality", {}) or {}
+        leakage = report_context.get("leakage", {}) or {}
+        metrics = report_context.get("metric_recommendation", {}) or {}
+        imbalance = report_context.get("class_imbalance", {}) or {}
+        baseline = report_context.get("baseline_results", {}) or {}
+        mlflow = report_context.get("mlflow_results", {}) or {}
 
-        leakage_count = leakage.get("total_possible_leakage_risks", 0)
-        warnings = data_quality.get("warnings", [])
-        best_model = baseline.get("best_model", {})
+        leakage_count = int(leakage.get("total_possible_leakage_risks", 0) or 0)
+        warnings = data_quality.get("warnings", []) or []
+        best_model = baseline.get("best_model", {}) or {}
 
         primary_metric = metrics.get("primary_metric", "N/A")
         metric_reason = metrics.get("reason", "N/A")
 
-        if leakage_count == 0:
-            leakage_level = "Low"
-            leakage_message = "No possible leakage risks were detected."
-        elif leakage_count <= 3:
-            leakage_level = "Medium"
-            leakage_message = (
-                "Some possible leakage risks were detected and should be reviewed."
-            )
-        else:
-            leakage_level = "High"
-            leakage_message = (
-                "Multiple possible leakage risks were detected and require careful review."
-            )
+        leakage_level, leakage_message = _get_leakage_summary(leakage_count)
+        dataset_health, quality_message = _get_dataset_health(warnings)
 
-        if warnings == ["No major basic data quality issues detected."] or not warnings:
-            dataset_health = "Good"
-            quality_message = "No major basic data quality issues were detected."
-        else:
-            dataset_health = "Needs Review"
-            quality_message = "Some data quality warnings were detected."
-
-        best_model_name = (
-            best_model.get("model_name")
-            or best_model.get("model")
-            or "N/A"
-        )
+        best_model_name = best_model.get("model_name") or best_model.get("model") or "N/A"
         best_model_score = best_model.get("score", "N/A")
         selection_metric = best_model.get("selection_metric", primary_metric)
 
@@ -309,14 +471,21 @@ def build_fallback_report(report_context: Dict[str, Any]) -> str:
         imbalance_ratio = imbalance.get("imbalance_ratio", "N/A")
 
         models_trained = baseline.get("models_trained", [])
-        models_text = ", ".join(models_trained) if models_trained else "None"
+        models_text = _format_list(models_trained)
 
-        return f"""# Agentic ML Audit Report
+        recommended_metrics = _format_list(metrics.get("recommended_metrics", []))
+        mlflow_models_logged = _format_list(mlflow.get("models_logged", []))
+
+        return f"""# {REPORT_TITLE}
 
 ## Executive Summary
 This fallback report was generated deterministically because the Groq LLM service was unavailable or unconfigured.
 
 The dataset health is marked as **{dataset_health}**. The audit detected **{leakage_count} possible leakage risks**. The recommended primary metric is **{primary_metric}**. The best baseline model is **{best_model_name}** based on **{selection_metric}**.
+
+- **Project:** {metadata.get("project_name", "Agentic ML Audit Copilot")}
+- **Version:** {metadata.get("project_version", "N/A")}
+- **Generated At:** {metadata.get("generated_at", "N/A")}
 
 ## 1. Dataset Overview
 - **Total Rows:** {dataset.get("rows", "N/A")}
@@ -324,6 +493,8 @@ The dataset health is marked as **{dataset_health}**. The audit detected **{leak
 - **Feature Count:** {dataset.get("feature_count", "N/A")}
 - **Target Column:** {report_context.get("target_column", "N/A")}
 - **Duplicate Rows:** {dataset.get("duplicate_rows", "N/A")}
+- **Duplicate Rows Percent:** {dataset.get("duplicate_rows_percent", "N/A")}
+- **Memory Usage MB:** {dataset.get("memory_usage_mb", "N/A")}
 - **Numeric Columns:** {len(dataset.get("numeric_columns", []))}
 - **Categorical Columns:** {len(dataset.get("categorical_columns", []))}
 - **Datetime Columns:** {len(dataset.get("datetime_columns", []))}
@@ -336,7 +507,7 @@ This determines which preprocessing strategy, baseline models, and evaluation me
 ## 3. Data Quality Audit
 - **Status:** {dataset_health}
 - **Summary:** {quality_message}
-- **Warnings:** {", ".join(warnings) if warnings else "None"}
+- **Warnings:** {_format_list(warnings)}
 
 Data quality should be reviewed before final model training because missing values, duplicate rows, constant columns, and ID-like columns can affect model reliability.
 
@@ -350,7 +521,7 @@ These findings are possible leakage risks, not confirmed leakage. A human should
 ## 5. Metric Recommendation
 - **Primary Metric:** {primary_metric}
 - **Reason:** {metric_reason}
-- **Recommended Metrics:** {", ".join(metrics.get("recommended_metrics", [])) or "N/A"}
+- **Recommended Metrics:** {recommended_metrics}
 
 The primary metric should guide baseline comparison and future model tuning.
 
@@ -370,8 +541,10 @@ If imbalance exists, accuracy alone may be misleading. Class-aware metrics such 
 These models are baseline sanity-checks. They are not final optimized models.
 
 ## 8. MLflow Tracking
+- **Enabled:** {mlflow.get("enabled", "N/A")}
 - **Experiment Name:** {mlflow.get("experiment_name", "N/A")}
-- **Models Logged:** {", ".join(mlflow.get("models_logged", [])) or "N/A"}
+- **Models Logged:** {mlflow_models_logged}
+- **Logged Model URI:** {mlflow.get("logged_model_uri", "N/A")}
 - **Status:** {mlflow.get("message", "N/A")}
 
 MLflow tracking helps compare future experiments, tuned models, and metric changes.
@@ -389,11 +562,11 @@ MLflow tracking helps compare future experiments, tuned models, and metric chang
 - This audit supports ML review before training, but human validation is still required.
 """
 
-    except Exception as e:
-        logger.error(f"Fallback report generation failed: {e}")
+    except Exception as error:
+        logger.exception("Fallback report generation failed.")
         return (
-            "# Agentic ML Audit Report\n\n"
-            "Error: Could not generate fallback audit report."
+            f"# {REPORT_TITLE}\n\n"
+            f"Error: Could not generate fallback audit report. Detail: {error}"
         )
 
 
@@ -401,18 +574,27 @@ def generate_final_report(audit_results: Dict[str, Any]) -> str:
     """
     Generate the final audit report.
 
-    The function first extracts safe deterministic audit context,
-    then tries Groq LLM report generation, and finally falls back
-    to a deterministic Markdown report if the LLM is unavailable.
+    First extracts safe deterministic audit context, then tries Groq LLM report
+    generation, and finally falls back to a deterministic Markdown report.
     """
-    context = extract_report_context(audit_results)
+    try:
+        context = extract_report_context(audit_results)
+        report = generate_report_with_groq(context)
 
-    report = generate_report_with_groq(context)
+        if report is None:
+            report = build_fallback_report(context)
 
-    if report is None:
-        report = build_fallback_report(context)
+        return report
 
-    return report
+    except LLMReportError:
+        raise
+
+    except Exception as error:
+        logger.exception("Final report generation failed.")
+        raise LLMReportError(
+            "Final report generation failed.",
+            error_detail=str(error),
+        ) from error
 
 
 def build_audit_report(audit_results: Dict[str, Any]) -> str:
@@ -422,23 +604,14 @@ def build_audit_report(audit_results: Dict[str, Any]) -> str:
     return generate_final_report(audit_results)
 
 
-def build_section_explanation(
-    section_name: str,
-    section_data: Dict[str, Any],
-) -> str:
+def build_section_explanation(section_name: str, section_data: Dict[str, Any]) -> str:
     """
-    Build a small deterministic explanation for Streamlit sections.
-
-    This helper is useful when the UI needs a short explanation but the
-    full LLM report is not required.
+    Build a short deterministic explanation for Streamlit sections.
     """
     if section_name == "metric_recommendation":
         primary_metric = section_data.get("primary_metric", "N/A")
         reason = section_data.get("reason", "N/A")
-        return (
-            f"The recommended primary metric is **{primary_metric}**. "
-            f"{reason}"
-        )
+        return f"The recommended primary metric is **{primary_metric}**. {reason}"
 
     if section_name == "leakage":
         risk_count = section_data.get("total_possible_leakage_risks", 0)
@@ -458,73 +631,134 @@ def build_section_explanation(
         )
 
     if section_name == "baseline_results":
-        best_model = section_data.get("best_model", {})
+        best_model = section_data.get("best_model", {}) or {}
         model_name = best_model.get("model_name", "N/A")
         score = best_model.get("score", "N/A")
         metric = best_model.get("selection_metric", "selected metric")
         return (
-            f"The best baseline model is **{model_name}** with a "
-            f"{metric} score of **{score}**. These are baseline sanity-check "
-            "models, not final optimized models."
+            f"The best baseline model is **{model_name}** with a {metric} "
+            f"score of **{score}**. These are baseline sanity-check models, "
+            "not final optimized models."
         )
+
+    if section_name == "data_quality":
+        warnings = section_data.get("warnings", []) or []
+        if not warnings:
+            return "No major basic data quality issues were detected."
+        return f"The audit found **{len(warnings)} data quality warnings** that should be reviewed."
+
+    if section_name == "mlflow_results":
+        experiment_name = section_data.get("experiment_name", "N/A")
+        message = section_data.get("message", "N/A")
+        return f"MLflow experiment **{experiment_name}** status: {message}"
 
     return "Explanation not available for this section."
 
 
-def save_audit_report(
-    report: str,
-    output_path: str = "reports/audit_report.md",
+def save_report_context(
+    report_context: Dict[str, Any],
+    output_path: str | Path = DEFAULT_CONTEXT_PATH,
 ) -> Dict[str, Any]:
     """
-    Save the generated audit report to disk.
+    Save JSON-safe report context to disk.
     """
     try:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(report, encoding="utf-8")
+
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(_json_safe(report_context), file, indent=2, default=str)
 
         return {
-            "report_path": output_path,
+            "context_path": str(path),
+            "message": "Audit context saved successfully.",
+        }
+
+    except Exception as error:
+        logger.exception("Saving audit context failed.")
+        raise LLMReportError(
+            "Saving audit context failed.",
+            error_detail=str(error),
+        ) from error
+
+
+def save_audit_report(
+    report: str,
+    output_path: str | Path | None = None,
+    audit_results: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """
+    Save the generated audit report to disk.
+
+    Uses config.yaml by default:
+    - reports.default_report_path
+    - reports.save_json
+    """
+    try:
+        if not report or not str(report).strip():
+            raise LLMReportError("Report content is empty and cannot be saved.")
+
+        configured_path = get_config_value(
+            "reports.default_report_path",
+            DEFAULT_REPORT_PATH,
+        )
+        path = Path(output_path or configured_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(report), encoding="utf-8")
+
+        result: Dict[str, Any] = {
+            "report_path": str(path),
             "message": "Audit report saved successfully.",
         }
 
-    except Exception as e:
-        logger.error(f"Saving audit report failed: {e}")
-        raise AuditCopilotException(f"Saving audit report failed: {e}") from e
+        save_json = _as_bool(get_config_value("reports.save_json", False))
+
+        if save_json and audit_results is not None:
+            context = extract_report_context(audit_results)
+            json_path = path.with_suffix(".json")
+            context_save_result = save_report_context(context, json_path)
+            result["context_path"] = context_save_result["context_path"]
+
+        return result
+
+    except LLMReportError:
+        raise
+
+    except Exception as error:
+        logger.exception("Saving audit report failed.")
+        raise LLMReportError(
+            "Saving audit report failed.",
+            error_detail=str(error),
+        ) from error
 
 
 def ask_about_audit(
     audit_context: Dict[str, Any],
     user_question: str,
+    chat_history: Optional[list[Dict[str, str]]] = None,
 ) -> Optional[str]:
     """
     Answer user questions using ONLY the completed audit results.
 
-    This function is used by the Streamlit audit chat after the audit
-    has completed. It never performs new ML computations.
+    This function is used by Streamlit audit chat after the audit has completed.
+    It never performs new ML computations.
     """
     try:
         if not user_question or not user_question.strip():
             return None
 
-        llm_config = get_llm_config()
-
-        api_key = llm_config.get("api_key")
-        model = llm_config.get("model", "llama-3.3-70b-versatile")
-        temperature = float(llm_config.get("temperature", 0.2))
-        max_tokens = int(llm_config.get("max_tokens", 700))
-
-        if not api_key:
-            logger.warning("Groq API key not found. Audit chat unavailable.")
-            return None
-
         safe_context = extract_report_context(audit_context)
+        context_json = json.dumps(safe_context, indent=2, default=str)
 
-        context_json = json.dumps(
-            safe_context,
-            indent=2,
-            default=str,
-        )
+        history_text = ""
+        if chat_history:
+            cleaned_history = []
+            for item in chat_history[-6:]:
+                role = item.get("role", "user")
+                content = item.get("content", "")
+                if content:
+                    cleaned_history.append(f"{role}: {content}")
+            history_text = "\n".join(cleaned_history)
 
         prompt = f"""
 You are an ML Audit Copilot.
@@ -541,52 +775,30 @@ Rules:
 - Never train or recommend a model not present in the audit.
 - Never contradict the audit context.
 - If the answer is unavailable in the audit context, clearly say so.
-- Always reply in plain English, regardless of what language the
-  question was asked in.
+- Always reply in plain English, regardless of what language the question was asked in.
 - Keep the answer concise and practical.
 - Explain ML concepts in beginner-friendly language.
+
+Recent Chat History:
+{history_text or "No previous chat history."}
 
 User Question:
 {user_question}
 
 Completed Audit Results:
+```json
 {context_json}
-"""
+```
+""".strip()
 
-        client = Groq(api_key=api_key)
-
-        response = client.chat.completions.create(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an ML Audit Copilot. Answer only from the "
-                        "completed audit context. Never invent numbers. "
-                        "Never perform new ML computations. Always reply "
-                        "in plain English, regardless of what language the "
-                        "user's question is written in."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
+        return _call_groq_chat(
+            system_prompt=SYSTEM_CHAT_PROMPT,
+            user_prompt=prompt,
+            max_tokens_default=700,
         )
 
-        answer = response.choices[0].message.content
-
-        if not answer or not answer.strip():
-            logger.warning("Groq returned an empty answer for audit chat.")
-            return None
-
-        return answer.strip()
-
-    except Exception as e:
-        logger.error(f"Audit chat failed: {e}")
+    except Exception as error:
+        logger.warning("Audit chat failed: %s", error)
         return None
 
 
@@ -620,7 +832,13 @@ if __name__ == "__main__":
             "categorical_columns": [],
             "datetime_columns": [],
             "duplicate_rows": 0,
-            "target_distribution": {"0": 500, "1": 268},
+            "target_summary": {
+                "target_column": "Outcome",
+                "distribution": {
+                    "0": {"count": 500, "percent": 65.1},
+                    "1": {"count": 268, "percent": 34.9},
+                },
+            },
         },
         "data_quality": {
             "missing_values": {},
@@ -642,8 +860,7 @@ if __name__ == "__main__":
             "all_risks": [],
             "warning": (
                 "These are possible leakage risks, not confirmed leakage. "
-                "A human should review whether these columns would be "
-                "available at prediction time."
+                "A human should review whether these columns would be available at prediction time."
             ),
         },
         "metric_recommendation": {
@@ -677,10 +894,7 @@ if __name__ == "__main__":
                 "PR-AUC",
                 "ROC-AUC",
             ],
-            "warning": (
-                "Moderate class imbalance detected. Accuracy alone may be "
-                "misleading."
-            ),
+            "warning": "Moderate class imbalance detected. Accuracy alone may be misleading.",
         },
         "baseline_results": {
             "problem_type": "binary_classification",
@@ -721,10 +935,8 @@ if __name__ == "__main__":
         },
     }
 
-    print("Starting Groq LLM report test...")
-
     report_output = build_audit_report(sample_results)
-    save_result = save_audit_report(report_output)
+    save_result = save_audit_report(report_output, audit_results=sample_results)
 
     print(report_output)
     print(save_result)

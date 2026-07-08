@@ -1,11 +1,14 @@
 from __future__ import annotations
-
+import base64
+import json
+import time
+import uuid
 from pathlib import Path
 from typing import Any
-import json
-import uuid
 
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from src.audit.llm_report import ask_about_audit
@@ -26,43 +29,99 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------------------------
-# Styling
+# Global CSS
 # ---------------------------------------------------------------------------
 st.markdown(
     """
     <style>
     :root {
         --accent: #6C5CE7;
+        --accent-2: #00D4FF;
         --accent-soft: #A29BFE;
-        --bg-card: #F8F9FB;
+        --bg-card: #FFFFFF;
+        --bg-soft: #F7F7FB;
         --border-card: #E7E7F0;
-        --text-dark: #1A1A2E;
+        --text-dark: #16162A;
+        --text-muted: #6B7280;
+        --success: #10B981;
+        --warning: #F59E0B;
+        --danger: #EF4444;
+        --info: #3B82F6;
     }
 
-    .main-header {
-        padding: 1.75rem 2rem;
-        border-radius: 14px;
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-soft) 100%);
+    .block-container {
+        padding-top: 1.4rem;
+        padding-bottom: 2.5rem;
+    }
+
+    .hero {
+        padding: 2.1rem 2.25rem;
+        border-radius: 22px;
+        background:
+          radial-gradient(circle at top right, rgba(0,212,255,0.28), transparent 30%),
+          linear-gradient(135deg, #211C84 0%, #6C5CE7 52%, #00D4FF 100%);
         color: white;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.4rem;
+        box-shadow: 0 18px 42px rgba(64, 57, 150, 0.22);
     }
 
-    .main-header h1 {
+    .hero h1 {
         margin: 0;
-        font-size: 1.9rem;
+        font-size: 2.15rem;
+        letter-spacing: -0.02em;
     }
 
-    .main-header p {
-        margin: 0.35rem 0 0 0;
-        opacity: 0.92;
-        font-size: 0.95rem;
+    .hero p {
+        margin: 0.55rem 0 0 0;
+        opacity: 0.94;
+        font-size: 1rem;
+        max-width: 940px;
+        line-height: 1.55;
+    }
+
+    .hero-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 1.15rem;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.35rem 0.65rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.16);
+        border: 1px solid rgba(255,255,255,0.28);
+        color: white;
+        font-size: 0.82rem;
+        font-weight: 650;
+    }
+
+    .section-card {
+        border: 1px solid var(--border-card);
+        border-radius: 18px;
+        padding: 1.1rem 1.15rem;
+        background: var(--bg-card);
+        box-shadow: 0 10px 28px rgba(22,22,42,0.045);
+        margin-bottom: 1rem;
+    }
+
+    .soft-card {
+        border: 1px solid var(--border-card);
+        border-radius: 16px;
+        padding: 1rem;
+        background: var(--bg-soft);
+        margin: 0.4rem 0 1rem 0;
     }
 
     div[data-testid="stMetric"] {
-        background-color: var(--bg-card);
+        background: linear-gradient(180deg, #FFFFFF 0%, #F8F9FF 100%);
         border: 1px solid var(--border-card);
-        border-radius: 12px;
-        padding: 0.9rem 0.9rem 0.6rem 0.9rem;
+        border-radius: 16px;
+        padding: 1rem 1rem 0.75rem 1rem;
+        box-shadow: 0 8px 22px rgba(22,22,42,0.05);
     }
 
     div[data-testid="stMetric"] label,
@@ -73,38 +132,46 @@ st.markdown(
     }
 
     button[data-baseweb="tab"] {
-        font-weight: 600;
+        font-weight: 700;
     }
 
-    .chat-answer {
-        background-color: var(--bg-card);
-        border-left: 4px solid var(--accent);
-        border-radius: 8px;
-        padding: 1rem 1.2rem;
-        margin-top: 0.5rem;
-        color: var(--text-dark) !important;
+    .verdict {
+        padding: 0.85rem 1rem;
+        border-radius: 14px;
+        font-weight: 700;
+        border: 1px solid rgba(0,0,0,0.06);
+        margin: 0.5rem 0 1rem 0;
     }
 
-    .chat-answer * {
-        color: var(--text-dark) !important;
+    .verdict-good {
+        background: rgba(16,185,129,0.12);
+        color: #065F46;
+    }
+
+    .verdict-review {
+        background: rgba(245,158,11,0.14);
+        color: #92400E;
+    }
+
+    .verdict-risk {
+        background: rgba(239,68,68,0.13);
+        color: #991B1B;
     }
 
     .small-muted {
-        color: #6B7280;
+        color: var(--text-muted);
         font-size: 0.88rem;
     }
+
+    .footer {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-card);
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        text-align: center;
+    }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-st.markdown(
-    """
-    <div class="main-header">
-        <h1>🤖 Agentic ML Audit Copilot</h1>
-        <p>Audit your dataset for data quality, leakage, imbalance, metrics, and baseline model readiness before training.</p>
-    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -114,9 +181,6 @@ st.markdown(
 # Utility helpers
 # ---------------------------------------------------------------------------
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
     if isinstance(value, bool):
         return value
 
@@ -126,10 +190,11 @@ def as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def get_project_version() -> str:
+    return str(get_config_value("project.version", "1.0.0"))
+
+
 def cleanup_file(file_path: Path) -> None:
-    """
-    Delete uploaded file if cleanup is enabled in config.yaml.
-    """
     cleanup_enabled = as_bool(
         get_config_value("streamlit.cleanup_uploaded_files", False)
     )
@@ -138,28 +203,14 @@ def cleanup_file(file_path: Path) -> None:
         file_path.unlink(missing_ok=True)
 
 
-def remove_non_serializable_objects(result: dict[str, Any]) -> dict[str, Any]:
-    """
-    Remove sklearn pipeline objects before storing result in Streamlit state.
-    """
-    clean_result = result.copy()
-    baseline_results = clean_result.get("baseline_results", {}).copy()
-    baseline_results.pop("trained_model_objects", None)
-    clean_result["baseline_results"] = baseline_results
-    clean_result.pop("df", None)
-    return clean_result
-
-
 def reset_audit_state() -> None:
-    """
-    Clear previous audit state from Streamlit session.
-    """
     keys_to_clear = [
         "audit_result",
         "df_preview",
         "target_column",
         "uploaded_filename",
         "chat_history",
+        "last_runtime_seconds",
     ]
 
     for key in keys_to_clear:
@@ -167,494 +218,231 @@ def reset_audit_state() -> None:
 
 
 def safe_dataframe_preview(file_path: Path) -> pd.DataFrame:
-    """
-    Read uploaded CSV for preview with a clear UI error on failure.
-    """
     try:
-        return pd.read_csv(file_path)
+        preview_rows = int(get_config_value("dataset.profiling_sample_rows", 100000))
+        return pd.read_csv(file_path, nrows=preview_rows, low_memory=False)
 
     except Exception as error:
         st.error(f"Failed to read CSV file: {error}")
         st.stop()
 
 
+def remove_non_serializable_objects(result: dict[str, Any]) -> dict[str, Any]:
+    clean_result = dict(result)
+
+    baseline_results = dict(clean_result.get("baseline_results", {}))
+    baseline_results.pop("trained_model_objects", None)
+    baseline_results.pop("runtime_objects", None)
+
+    clean_result["baseline_results"] = baseline_results
+    clean_result.pop("df", None)
+
+    return clean_result
+
+
 def to_json_download(data: dict[str, Any]) -> str:
-    """
-    Convert audit result to JSON string for download.
-    """
     return json.dumps(data, indent=2, default=str)
+
+
+def dataframe_from_records(records: list[dict[str, Any]]) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
+
+    return pd.DataFrame(records)
+
+
+def safe_number(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "N/A":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def health_color(label: str) -> str:
+    normalized = str(label).lower()
+
+    if normalized in {"good", "low", "none"}:
+        return "#10B981"
+
+    if normalized in {"needs_review", "moderate", "medium"}:
+        return "#F59E0B"
+
+    return "#EF4444"
+
+
+def make_bar_chart(
+    df: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    orientation: str = "v",
+) -> go.Figure:
+    fig = px.bar(
+        df,
+        x=x,
+        y=y,
+        title=title,
+        orientation=orientation,
+        text=y if orientation == "v" else x,
+    )
+    fig.update_layout(
+        height=390,
+        margin=dict(l=10, r=10, t=52, b=10),
+        title_font_size=18,
+        showlegend=False,
+    )
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    return fig
+
+
+def make_donut_chart(
+    labels: list[Any],
+    values: list[Any],
+    title: str,
+) -> go.Figure:
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=[str(label) for label in labels],
+                values=values,
+                hole=0.55,
+            )
+        ]
+    )
+    fig.update_layout(
+        title=title,
+        height=390,
+        margin=dict(l=10, r=10, t=52, b=10),
+    )
+    return fig
+
+
+def make_gauge(score: float, title: str) -> go.Figure:
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=score,
+            number={"suffix": "/100"},
+            title={"text": title},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "#6C5CE7"},
+                "steps": [
+                    {"range": [0, 50], "color": "#FEE2E2"},
+                    {"range": [50, 70], "color": "#FEF3C7"},
+                    {"range": [70, 85], "color": "#DBEAFE"},
+                    {"range": [85, 100], "color": "#D1FAE5"},
+                ],
+            },
+        )
+    )
+    fig.update_layout(height=310, margin=dict(l=15, r=15, t=45, b=15))
+    return fig
+
+
+def show_verdict(result: dict[str, Any]) -> None:
+    quality = result.get("data_quality", {}).get("quality_score", {})
+    health = str(quality.get("health_label", "unknown")).lower()
+
+    leakage_severity = str(
+        result.get("leakage", {}).get("overall_severity", "none")
+    ).lower()
+
+    if health in {"critical", "poor"} or leakage_severity in {"critical", "high"}:
+        css = "verdict verdict-risk"
+        text = "High Review Needed: Dataset has important quality or leakage-risk signals."
+    elif health == "needs_review" or leakage_severity in {"medium", "moderate"}:
+        css = "verdict verdict-review"
+        text = "Needs Review: Audit passed basic execution, but warnings should be checked."
+    else:
+        css = "verdict verdict-good"
+        text = "Good Starting Point: No major blocking issue detected by current audit checks."
+
+    st.markdown(f'<div class="{css}">{text}</div>', unsafe_allow_html=True)
+
+
+def show_hero() -> None:
+    st.markdown(
+        f"""
+        <div class="hero">
+            <h1>🤖 Agentic ML Audit Copilot</h1>
+            <p>
+                Upload any CSV dataset and run a deterministic pre-training ML audit:
+                data quality, leakage risk, metric recommendation, class imbalance,
+                baseline models, MLflow tracking, feature importance, SHAP explainability,
+                and a grounded AI audit report.
+            </p>
+            <div class="hero-badges">
+                <span class="badge">⚙️ Deterministic-first</span>
+                <span class="badge">📊 Plotly Dashboard</span>
+                <span class="badge">🧪 MLflow</span>
+                <span class="badge">🔍 SHAP-ready</span>
+                <span class="badge">v{get_project_version()}</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.header("ℹ️ How this works")
-    st.markdown(
-        """
-        1. **Upload** a CSV dataset.
-        2. **Select** the target column.
-        3. **Run Audit**.
-        4. Python performs all deterministic ML checks.
-        5. LLM only explains the completed audit.
-        """
-    )
+def show_sidebar() -> None:
+    with st.sidebar:
+        st.header("⚙️ Audit Control Center")
 
-    st.divider()
-
-    st.markdown("### Deterministic-first rule")
-    st.caption(
-        "Leakage detection, metrics, imbalance checks, preprocessing, and model training are all done by Python. The LLM only writes explanations and answers audit questions."
-    )
-
-    st.divider()
-
-    if st.button("Clear Current Audit"):
-        reset_audit_state()
-        st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# Display helpers
-# ---------------------------------------------------------------------------
-def show_dataset_overview(profile: dict[str, Any]) -> None:
-    """
-    Display dataset-level summary cards.
-    """
-    st.subheader("📊 Dataset Overview")
-
-    shape = profile.get("shape", {})
-    column_types = profile.get("column_types", {})
-
-    numeric_columns = profile.get("numeric_columns") or column_types.get(
-        "numeric_columns", []
-    )
-    categorical_columns = profile.get("categorical_columns") or column_types.get(
-        "categorical_columns", []
-    )
-    datetime_columns = profile.get("datetime_columns") or column_types.get(
-        "datetime_columns", []
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Rows", shape.get("rows", "N/A"))
-
-    with col2:
-        st.metric("Columns", shape.get("columns", "N/A"))
-
-    with col3:
-        st.metric("Duplicate Rows", profile.get("duplicate_rows", 0))
-
-    with col4:
-        st.metric("Datetime Columns", len(datetime_columns))
-
-    type_df = pd.DataFrame(
-        {
-            "Type": ["Numeric", "Categorical", "Datetime"],
-            "Count": [
-                len(numeric_columns),
-                len(categorical_columns),
-                len(datetime_columns),
-            ],
-        }
-    ).set_index("Type")
-
-    st.bar_chart(type_df)
-
-
-def show_target_distribution(df: pd.DataFrame, target_column: str) -> None:
-    """
-    Display target distribution chart.
-    """
-    st.subheader("🎯 Target Distribution")
-
-    target_counts = df[target_column].value_counts(dropna=False)
-
-    chart_df = pd.DataFrame(
-        {
-            "Class": target_counts.index.astype(str),
-            "Count": target_counts.values,
-        }
-    ).set_index("Class")
-
-    st.bar_chart(chart_df)
-
-    with st.expander("View target counts"):
-        st.dataframe(chart_df, use_container_width=True)
-
-
-def show_data_quality(data_quality: dict[str, Any]) -> None:
-    """
-    Display data quality findings.
-    """
-    st.subheader("🧩 Data Quality Audit")
-
-    target_quality = data_quality.get("target_quality", {})
-    warnings = data_quality.get("warnings", [])
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Duplicate Rows", data_quality.get("duplicate_rows", 0))
-
-    with col2:
-        st.metric(
-            "Target Missing %",
-            target_quality.get("missing_percent", "N/A"),
+        st.markdown("### Workflow")
+        st.markdown(
+            """
+            1. Upload CSV  
+            2. Select target  
+            3. Run deterministic audit  
+            4. Review risks + baselines  
+            5. Ask audit questions  
+            """
         )
 
-    with col3:
-        st.metric("Warnings", len(warnings))
+        st.divider()
 
-    if warnings:
-        for warning in warnings:
-            if warning == "No major basic data quality issues detected.":
-                st.success(warning)
-            else:
-                st.warning(warning)
+        st.markdown("### Current Config")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("Max Upload", f"{get_config_value('streamlit.max_upload_mb', 25)} MB")
+        with c2:
+            st.metric("CV", str(get_config_value("modeling.enable_cross_validation", False)))
 
-    missing_values = data_quality.get("missing_values", {})
-
-    st.markdown("#### Missing Values")
-
-    if not missing_values:
-        st.success("No missing values found in feature columns.")
-    else:
-        rows = [
-            {
-                "Column": column,
-                "Missing Count": values.get("missing_count", 0),
-                "Missing %": values.get("missing_percent", 0),
-            }
-            for column, values in missing_values.items()
-        ]
-        missing_df = pd.DataFrame(rows).sort_values("Missing %", ascending=False)
-        st.dataframe(missing_df, use_container_width=True)
-        st.bar_chart(missing_df.set_index("Column")["Missing %"])
-
-    show_quality_table(
-        title="High Missing Columns",
-        records=data_quality.get("high_missing_columns", []),
-    )
-    show_quality_table(
-        title="Constant Columns",
-        records=[{"column": col} for col in data_quality.get("constant_columns", [])],
-    )
-    show_quality_table(
-        title="High Cardinality Columns",
-        records=data_quality.get("high_cardinality_columns", []),
-    )
-    show_quality_table(
-        title="Possible ID Columns",
-        records=data_quality.get("possible_id_columns", []),
-    )
-
-
-def show_quality_table(title: str, records: list[dict[str, Any]]) -> None:
-    """
-    Show a quality section as an expandable table.
-    """
-    with st.expander(title):
-        if records:
-            st.dataframe(pd.DataFrame(records), use_container_width=True)
-        else:
-            st.success("None detected.")
-
-
-def show_metric_recommendation(metric_result: dict[str, Any]) -> None:
-    """
-    Display metric recommendation.
-    """
-    st.subheader("📌 Metric Recommendation")
-
-    primary_metric = metric_result.get("primary_metric", "N/A")
-    reason = metric_result.get("reason", "N/A")
-    recommended_metrics = metric_result.get("recommended_metrics", [])
-
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        st.metric("Primary Metric", primary_metric)
-
-    with col2:
-        st.info(reason)
-
-    if recommended_metrics:
-        st.table(pd.DataFrame({"Recommended Metrics": recommended_metrics}))
-
-
-def show_class_imbalance(imbalance_result: dict[str, Any]) -> None:
-    """
-    Display class imbalance analysis.
-    """
-    st.subheader("⚖️ Class Imbalance")
-
-    if not imbalance_result.get("is_applicable", True):
-        st.info(imbalance_result.get("message", "Not applicable."))
-        return
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Imbalance Ratio", imbalance_result.get("imbalance_ratio", "N/A"))
-
-    with col2:
-        st.metric("Severity", imbalance_result.get("imbalance_severity", "N/A"))
-
-    with col3:
-        st.metric("Minority Class", imbalance_result.get("minority_class", "N/A"))
-
-    class_counts = imbalance_result.get("class_counts", {})
-
-    if class_counts:
-        class_df = pd.DataFrame(
-            {
-                "Class": list(class_counts.keys()),
-                "Count": list(class_counts.values()),
-            }
-        ).set_index("Class")
-        st.bar_chart(class_df)
-        st.dataframe(class_df, use_container_width=True)
-
-    warning = imbalance_result.get("warning")
-    if warning:
-        st.warning(warning)
-
-
-def show_leakage(leakage_result: dict[str, Any]) -> None:
-    """
-    Display possible leakage-risk analysis.
-    """
-    st.subheader("🚨 Possible Leakage Risks")
-
-    total_risks = leakage_result.get("total_possible_leakage_risks", 0)
-    all_risks = leakage_result.get("all_risks", [])
-
-    st.metric("Total Possible Risks", total_risks)
-
-    if not all_risks:
-        st.success("No possible leakage risks detected.")
         st.caption(
-            "This does not guarantee absence of leakage. It only means no risk was detected by current deterministic checks."
-        )
-        return
-
-    risk_df = pd.DataFrame(all_risks)
-
-    if "risk_level" in risk_df.columns:
-        st.bar_chart(risk_df["risk_level"].value_counts())
-
-    st.dataframe(risk_df, use_container_width=True)
-
-    for risk in all_risks:
-        risk_level = risk.get("risk_level", "unknown").upper()
-        column = risk.get("column", "N/A")
-        reason = risk.get("reason", "N/A")
-
-        with st.expander(f"{risk_level} risk: {column}"):
-            st.write(reason)
-            st.json(risk)
-
-
-def show_baseline_results(baseline_result: dict[str, Any]) -> None:
-    """
-    Display baseline model benchmark.
-    """
-    st.subheader("🤖 Baseline Model Benchmark")
-
-    best_model = baseline_result.get("best_model", {})
-    results = baseline_result.get("results", {})
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Best Model", best_model.get("model_name", "N/A"))
-
-    with col2:
-        st.metric("Selection Metric", best_model.get("selection_metric", "N/A"))
-
-    with col3:
-        st.metric("Best Score", best_model.get("score", "N/A"))
-
-    note = baseline_result.get("note")
-    if note:
-        st.info(note)
-
-    if not results:
-        st.warning("No baseline results available.")
-        return
-
-    rows = []
-
-    for model_name, metrics in results.items():
-        row = {"Model": model_name}
-        row.update(metrics)
-        rows.append(row)
-
-    result_df = pd.DataFrame(rows)
-    st.dataframe(result_df, use_container_width=True)
-
-    metric_columns = [column for column in result_df.columns if column != "Model"]
-
-    if metric_columns:
-        selected_metric = st.selectbox(
-            "Select metric for model comparison",
-            options=metric_columns,
-        )
-        chart_df = result_df[["Model", selected_metric]].set_index("Model")
-        st.bar_chart(chart_df)
-
-
-def show_mlflow_results(mlflow_results: dict[str, Any]) -> None:
-    """
-    Display MLflow tracking summary.
-    """
-    st.subheader("🧪 MLflow Tracking")
-
-    models_logged = mlflow_results.get("models_logged", [])
-    model_logged = mlflow_results.get("model_logged", False)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Experiment", mlflow_results.get("experiment_name", "N/A"))
-
-    with col2:
-        st.metric("Runs Logged", len(models_logged))
-
-    with col3:
-        st.metric("Best Model Logged", str(model_logged))
-
-    if models_logged:
-        st.write("Models logged:")
-        st.write(", ".join(models_logged))
-
-    logged_uri = mlflow_results.get("logged_model_uri")
-    if logged_uri:
-        st.write("Logged best model URI:")
-        st.code(logged_uri)
-
-    message = mlflow_results.get("message")
-    if message:
-        st.caption(message)
-
-
-def show_ai_report(report_text: str) -> None:
-    """
-    Display generated Markdown audit report.
-    """
-    st.subheader("📄 Generated AI Audit Report")
-
-    if not report_text:
-        st.warning("Audit report not available.")
-        return
-
-    st.markdown(report_text)
-
-    st.download_button(
-        label="Download Markdown Report",
-        data=report_text,
-        file_name="audit_report.md",
-        mime="text/markdown",
-    )
-
-
-def show_downloads(result: dict[str, Any]) -> None:
-    """
-    Display audit result download buttons.
-    """
-    st.subheader("⬇️ Downloads")
-
-    report_text = result.get("audit_report", "")
-    json_text = to_json_download(result)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.download_button(
-            label="Download Audit Report (.md)",
-            data=report_text,
-            file_name="audit_report.md",
-            mime="text/markdown",
-            disabled=not bool(report_text),
+            "Python performs all ML computations. LLM only explains completed audit results."
         )
 
-    with col2:
-        st.download_button(
-            label="Download Audit Result (.json)",
-            data=json_text,
-            file_name="audit_result.json",
-            mime="application/json",
-        )
+        st.divider()
 
-
-def answer_audit_question(audit_result: dict[str, Any], user_question: str) -> str:
-    """
-    Ask the LLM a question about the current audit result.
-    """
-    response = ask_about_audit(
-        audit_context=audit_result,
-        user_question=user_question,
-    )
-
-    if response:
-        return response
-
-    return (
-        "LLM response available nahi hai. Audit report ke basis par manually "
-        "review karo."
-    )
-
-
-def show_audit_chat(result: dict[str, Any]) -> None:
-    """
-    Display audit-specific chat assistant with conversation history.
-    """
-    st.subheader("💬 Ask AI About This Audit")
-
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
-
-    for message in st.session_state["chat_history"]:
-        role = message.get("role", "assistant")
-        content = message.get("content", "")
-
-        with st.chat_message(role):
-            st.markdown(content)
-
-    user_question = st.chat_input(
-        "Ask about this audit. Example: Why is F1 Score recommended?"
-    )
-
-    if user_question:
-        st.session_state["chat_history"].append(
-            {"role": "user", "content": user_question}
-        )
-
-        with st.chat_message("user"):
-            st.markdown(user_question)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Generating grounded answer..."):
-                answer = answer_audit_question(
-                    audit_result=result,
-                    user_question=user_question.strip(),
-                )
-            st.markdown(answer)
-
-        st.session_state["chat_history"].append(
-            {"role": "assistant", "content": answer}
-        )
+        if st.button("🧹 Clear Current Audit", use_container_width=True):
+            reset_audit_state()
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# Upload and audit execution
+# Upload section
 # ---------------------------------------------------------------------------
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+def show_upload_panel() -> None:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("📤 Upload Dataset")
 
-if uploaded_file is not None:
+    uploaded_file = st.file_uploader(
+        "Upload a CSV file",
+        type=["csv"],
+        help="Only CSV files are currently supported.",
+    )
+
+    if uploaded_file is None:
+        st.info("Upload a CSV dataset to begin the audit.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
     current_filename = uploaded_file.name
 
     if st.session_state.get("uploaded_filename") != current_filename:
@@ -676,83 +464,835 @@ if uploaded_file is not None:
 
     df_preview = safe_dataframe_preview(file_path)
 
-    st.subheader("Dataset Preview")
-    st.dataframe(df_preview.head(), use_container_width=True)
+    st.success(f"Loaded preview successfully: {uploaded_file.name} ({file_size_mb:.2f} MB)")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Preview Rows", len(df_preview))
+    col2.metric("Columns", len(df_preview.columns))
+    col3.metric("File Size", f"{file_size_mb:.2f} MB")
+
+    with st.expander("Preview dataset", expanded=True):
+        st.dataframe(df_preview.head(20), use_container_width=True)
 
     target_column = st.selectbox(
         "Select target column",
         options=df_preview.columns.tolist(),
+        index=len(df_preview.columns) - 1 if len(df_preview.columns) > 0 else 0,
     )
 
-    show_target_distribution(df_preview, target_column)
+    if target_column:
+        show_target_distribution(
+    df_preview,
+    target_column,
+    compact=True,
+    chart_key="upload_target_distribution",
+)
 
-    if st.button("Run Audit", type="primary"):
-        try:
-            with st.spinner("Running deterministic audit + LLM report..."):
-                result = run_audit_workflow(
-                    dataset_path=str(file_path),
-                    target_column=target_column,
-                )
+    run_col, clear_col = st.columns([2, 1])
 
-            result = remove_non_serializable_objects(result)
+    with run_col:
+        run_clicked = st.button(
+            "🚀 Run Full Audit",
+            type="primary",
+            use_container_width=True,
+        )
 
-            st.session_state["audit_result"] = result
-            st.session_state["df_preview"] = df_preview
-            st.session_state["target_column"] = target_column
-            st.session_state["chat_history"] = []
-
-            st.success("Audit completed successfully!")
-
-        except Exception as error:
-            st.error(f"Audit failed: {error}")
-
-        finally:
+    with clear_col:
+        if st.button("Reset", use_container_width=True):
+            reset_audit_state()
             cleanup_file(file_path)
+            st.rerun()
+
+    if run_clicked:
+        run_audit_and_store(file_path, target_column, df_preview)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def run_audit_and_store(
+    file_path: Path,
+    target_column: str,
+    df_preview: pd.DataFrame,
+) -> None:
+    try:
+        progress = st.progress(0)
+        status = st.empty()
+
+        steps = [
+            "Loading dataset",
+            "Profiling dataset",
+            "Checking data quality",
+            "Detecting leakage risks",
+            "Training baseline models",
+            "Running explainability",
+            "Generating audit report",
+        ]
+
+        start_time = time.perf_counter()
+
+        for idx, step in enumerate(steps[:-1], start=1):
+            status.info(f"Step {idx}/{len(steps)}: {step}...")
+            progress.progress(idx / len(steps))
+            time.sleep(0.08)
+
+        with st.spinner("Running deterministic audit + grounded AI report..."):
+            result = run_audit_workflow(
+                dataset_path=str(file_path),
+                target_column=target_column,
+            )
+
+        runtime_seconds = round(time.perf_counter() - start_time, 2)
+
+        status.success("Audit completed successfully.")
+        progress.progress(1.0)
+
+        result = remove_non_serializable_objects(result)
+
+        st.session_state["audit_result"] = result
+        st.session_state["df_preview"] = df_preview
+        st.session_state["target_column"] = target_column
+        st.session_state["chat_history"] = []
+        st.session_state["last_runtime_seconds"] = runtime_seconds
+
+        st.success(f"Audit completed in {runtime_seconds} seconds.")
+
+    except Exception as error:
+        st.error(f"Audit failed: {error}")
+
+    finally:
+        cleanup_file(file_path)
 
 
 # ---------------------------------------------------------------------------
-# Audit result display
+# Display helpers
 # ---------------------------------------------------------------------------
-if "audit_result" in st.session_state:
+def show_target_distribution(
+    df: pd.DataFrame,
+    target_column: str,
+    compact: bool = False,
+    chart_key: str = "target_distribution",
+) -> None:
+    st.subheader("🎯 Target Distribution")
+
+    target_counts = df[target_column].value_counts(dropna=False)
+
+    chart_df = pd.DataFrame(
+        {
+            "Class": target_counts.index.astype(str),
+            "Count": target_counts.values,
+        }
+    )
+
+    if len(chart_df) <= 12:
+        fig = make_donut_chart(
+            labels=chart_df["Class"].tolist(),
+            values=chart_df["Count"].tolist(),
+            title="Target Distribution",
+        )
+    else:
+        fig = make_bar_chart(
+            chart_df.head(25),
+            x="Class",
+            y="Count",
+            title="Top Target Values",
+        )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=chart_key,
+    )
+
+    if not compact:
+        with st.expander("View target counts"):
+            st.dataframe(chart_df, use_container_width=True)
+
+
+def show_top_kpi_row(result: dict[str, Any]) -> None:
+    profile = result.get("profile", {})
+    shape = profile.get("shape", {})
+    quality_score = result.get("data_quality", {}).get("quality_score", {})
+    leakage_count = result.get("leakage", {}).get("total_possible_leakage_risks", 0)
+    best_model = result.get("baseline_results", {}).get("best_model", {})
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    col1.metric("Rows", shape.get("rows", "N/A"))
+    col2.metric("Columns", shape.get("columns", "N/A"))
+    col3.metric("Quality Score", quality_score.get("score", "N/A"))
+    col4.metric("Leakage Risks", leakage_count)
+    col5.metric("Best Baseline", best_model.get("model_name", "N/A"))
+
+
+def show_dataset_overview(profile: dict[str, Any]) -> None:
+    st.subheader("📊 Dataset Overview")
+
+    shape = profile.get("shape", {})
+    column_types = profile.get("column_types", {})
+
+    numeric_columns = profile.get("numeric_columns") or column_types.get("numeric_columns", [])
+    categorical_columns = profile.get("categorical_columns") or column_types.get("categorical_columns", [])
+    datetime_columns = profile.get("datetime_columns") or column_types.get("datetime_columns", [])
+    boolean_columns = profile.get("boolean_columns") or column_types.get("boolean_columns", [])
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rows", shape.get("rows", "N/A"))
+    c2.metric("Columns", shape.get("columns", "N/A"))
+    c3.metric("Duplicate Rows", profile.get("duplicate_rows", 0))
+    c4.metric("Memory MB", profile.get("memory_usage_mb", "N/A"))
+
+    type_df = pd.DataFrame(
+        {
+            "Type": ["Numeric", "Categorical", "Datetime", "Boolean"],
+            "Count": [
+                len(numeric_columns),
+                len(categorical_columns),
+                len(datetime_columns),
+                len(boolean_columns),
+            ],
+        }
+    )
+
+    fig = make_bar_chart(type_df, x="Type", y="Count", title="Column Type Distribution")
+    st.plotly_chart(fig, use_container_width=True)
+
+    warnings = profile.get("warnings", [])
+    if warnings:
+        with st.expander("Profiler warnings"):
+            for warning in warnings:
+                st.warning(warning)
+
+
+def show_data_quality(data_quality: dict[str, Any]) -> None:
+    st.subheader("🧩 Data Quality Audit")
+
+    quality_score = data_quality.get("quality_score", {})
+    score = safe_number(quality_score.get("score", 0))
+    health = quality_score.get("health_label", "unknown")
+    target_quality = data_quality.get("target_quality", {})
+    warnings = data_quality.get("warnings", [])
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.plotly_chart(make_gauge(score, "Dataset Quality Score"), use_container_width=True)
+
+    with col2:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Health", health)
+        c2.metric("Duplicate Rows", data_quality.get("duplicate_rows", 0))
+        c3.metric("Target Missing %", target_quality.get("missing_percent", "N/A"))
+
+        if warnings:
+            for warning in warnings:
+                if warning == "No major basic data quality issues detected.":
+                    st.success(warning)
+                else:
+                    st.warning(warning)
+
+    missing_values = data_quality.get("missing_values", {})
+
+    st.markdown("#### Missing Values")
+    if missing_values:
+        missing_df = pd.DataFrame(
+            [
+                {
+                    "Column": column,
+                    "Missing Count": values.get("missing_count", 0),
+                    "Missing %": values.get("missing_percent", 0),
+                }
+                for column, values in missing_values.items()
+            ]
+        ).sort_values("Missing %", ascending=False)
+
+        st.dataframe(missing_df, use_container_width=True)
+        fig = make_bar_chart(
+            missing_df.head(25),
+            x="Missing %",
+            y="Column",
+            title="Top Missing Value Columns",
+            orientation="h",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.success("No missing values found in feature columns.")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        show_quality_table("High Missing Columns", data_quality.get("high_missing_columns", []))
+        show_quality_table("Null-only Columns", [{"column": col} for col in data_quality.get("null_only_columns", [])])
+        show_quality_table("Constant Columns", [{"column": col} for col in data_quality.get("constant_columns", [])])
+        show_quality_table("Near-constant Columns", data_quality.get("near_constant_columns", []))
+
+    with col_b:
+        show_quality_table("High Cardinality Columns", data_quality.get("high_cardinality_columns", []))
+        show_quality_table("Possible ID Columns", data_quality.get("possible_id_columns", []))
+        show_quality_table("Infinite Values", dict_to_records(data_quality.get("infinite_values", {})))
+        show_quality_table("Outlier Columns", data_quality.get("outlier_columns", []))
+
+    actions = data_quality.get("recommended_actions", [])
+    if actions:
+        st.markdown("#### Recommended Actions")
+        for action in actions:
+            st.info(action)
+
+
+def dict_to_records(data: dict[str, Any]) -> list[dict[str, Any]]:
+    records = []
+    for key, value in data.items():
+        row = {"column": key}
+        if isinstance(value, dict):
+            row.update(value)
+        else:
+            row["value"] = value
+        records.append(row)
+    return records
+
+
+def show_quality_table(title: str, records: list[dict[str, Any]]) -> None:
+    with st.expander(title):
+        if records:
+            st.dataframe(pd.DataFrame(records), use_container_width=True)
+        else:
+            st.success("None detected.")
+
+
+def show_metric_recommendation(metric_result: dict[str, Any]) -> None:
+    st.subheader("📌 Metric Recommendation")
+
+    primary_metric = metric_result.get("primary_metric", "N/A")
+    scoring_metric = metric_result.get("scoring_metric", "N/A")
+    reason = metric_result.get("reason", "N/A")
+    recommended_metrics = metric_result.get("recommended_metrics", [])
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Primary Metric", primary_metric)
+    c2.metric("Sklearn Scoring", scoring_metric)
+    c3.metric("Higher is Better", str(metric_result.get("higher_is_better", "N/A")))
+
+    st.info(reason)
+
+    if recommended_metrics:
+        metric_df = pd.DataFrame({"Recommended Metrics": recommended_metrics})
+        st.dataframe(metric_df, use_container_width=True)
+
+
+def show_class_imbalance(imbalance_result: dict[str, Any]) -> None:
+    st.subheader("⚖️ Class Imbalance")
+
+    if not imbalance_result.get("is_applicable", True):
+        st.info(imbalance_result.get("message", "Not applicable."))
+        return
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Imbalance Ratio", imbalance_result.get("imbalance_ratio", "N/A"))
+    c2.metric("Severity", imbalance_result.get("imbalance_severity", "N/A"))
+    c3.metric("Minority Class", imbalance_result.get("minority_class", "N/A"))
+    c4.metric("Classes", imbalance_result.get("num_classes", "N/A"))
+
+    class_counts = imbalance_result.get("class_counts", {})
+    if class_counts:
+        class_df = pd.DataFrame(
+            {
+                "Class": list(class_counts.keys()),
+                "Count": list(class_counts.values()),
+            }
+        )
+
+        fig = make_donut_chart(
+            labels=class_df["Class"].tolist(),
+            values=class_df["Count"].tolist(),
+            title="Class Distribution",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(class_df, use_container_width=True)
+
+    warning = imbalance_result.get("warning")
+    if warning:
+        st.warning(warning)
+
+    rare_classes = imbalance_result.get("rare_classes", {})
+    if rare_classes:
+        st.markdown("#### Rare Classes")
+        st.dataframe(
+            pd.DataFrame(
+                [{"Class": key, "Percent": value} for key, value in rare_classes.items()]
+            ),
+            use_container_width=True,
+        )
+
+    actions = imbalance_result.get("recommended_actions", [])
+    if actions:
+        st.markdown("#### Recommended Actions")
+        for action in actions:
+            st.info(action)
+
+
+def show_leakage(leakage_result: dict[str, Any]) -> None:
+    st.subheader("🚨 Possible Leakage Risks")
+
+    total_risks = leakage_result.get("total_possible_leakage_risks", 0)
+    severity = leakage_result.get("overall_severity", "none")
+    risk_summary = leakage_result.get("risk_summary", {})
+    all_risks = leakage_result.get("all_risks", [])
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Possible Risks", total_risks)
+    c2.metric("Overall Severity", severity)
+    c3.metric("Critical Risks", risk_summary.get("critical", 0))
+
+    if risk_summary:
+        risk_df = pd.DataFrame(
+            [{"Risk Level": key, "Count": value} for key, value in risk_summary.items()]
+        )
+        fig = make_bar_chart(risk_df, x="Risk Level", y="Count", title="Leakage Risk Summary")
+        st.plotly_chart(fig, use_container_width=True)
+
+    if not all_risks:
+        st.success("No possible leakage risks detected.")
+        st.caption("This does not guarantee absence of leakage. It means no risk was detected by current deterministic checks.")
+        return
+
+    risk_df = pd.DataFrame(all_risks)
+    st.dataframe(risk_df, use_container_width=True)
+
+    for risk in all_risks:
+        risk_level = risk.get("risk_level", "unknown").upper()
+        column = risk.get("column", "N/A")
+        reason = risk.get("reason", "N/A")
+
+        with st.expander(f"{risk_level} risk: {column}"):
+            st.write(reason)
+            st.json(risk)
+
+    actions = leakage_result.get("recommended_actions", [])
+    if actions:
+        st.markdown("#### Recommended Actions")
+        for action in actions:
+            st.info(action)
+
+
+def show_baseline_results(baseline_result: dict[str, Any]) -> None:
+    st.subheader("🤖 Baseline Model Benchmark")
+
+    best_model = baseline_result.get("best_model", {})
+    results = baseline_result.get("results", {})
+    evaluation_details = baseline_result.get("evaluation_details", {})
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Best Model", best_model.get("model_name", "N/A"))
+    c2.metric("Selection Metric", best_model.get("selection_metric", "N/A"))
+    c3.metric("Best Score", best_model.get("score", "N/A"))
+    c4.metric("CV Enabled", str(evaluation_details.get("cross_validation_enabled", False)))
+
+    note = baseline_result.get("note")
+    if note:
+        st.info(note)
+
+    if not results:
+        st.warning("No baseline results available.")
+        return
+
+    rows = []
+    for model_name, metrics in results.items():
+        row = {"Model": model_name}
+        row.update(metrics)
+        rows.append(row)
+
+    result_df = pd.DataFrame(rows)
+    st.dataframe(result_df, use_container_width=True)
+
+    metric_columns = [column for column in result_df.columns if column != "Model"]
+
+    if metric_columns:
+        selected_metric = st.selectbox(
+            "Select metric for model comparison",
+            options=metric_columns,
+            key="baseline_metric_select",
+        )
+        chart_df = result_df[["Model", selected_metric]]
+        fig = make_bar_chart(
+            chart_df,
+            x="Model",
+            y=selected_metric,
+            title=f"Model Comparison by {selected_metric}",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    confusion_matrices = evaluation_details.get("confusion_matrices", {})
+    if confusion_matrices:
+        st.markdown("#### Confusion Matrices")
+        for model_name, matrix in confusion_matrices.items():
+            with st.expander(model_name):
+                matrix_df = pd.DataFrame(matrix)
+                fig = px.imshow(
+                    matrix_df,
+                    text_auto=True,
+                    title=f"Confusion Matrix - {model_name}",
+                    labels=dict(x="Predicted", y="Actual", color="Count"),
+                )
+                fig.update_layout(height=420)
+                st.plotly_chart(fig, use_container_width=True)
+
+
+def show_explainability(explainability: dict[str, Any]) -> None:
+    st.subheader("🔍 Explainability")
+
+    if not explainability:
+        st.info("Explainability results not available.")
+        return
+
+    if not explainability.get("enabled", False):
+        st.info(explainability.get("message", "Explainability is disabled."))
+        return
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Available", str(explainability.get("available", False)))
+    c2.metric("Best Model", explainability.get("best_model_name", "N/A"))
+    c3.metric("Model Type", explainability.get("model_type", "N/A"))
+    c4.metric("Sample Rows", explainability.get("sample_rows_used", "N/A"))
+
+    summary = explainability.get("summary", {})
+    if summary.get("message"):
+        st.info(summary["message"])
+
+    builtin = explainability.get("builtin_feature_importance", {})
+    shap_result = explainability.get("shap", {})
+
+    source_choice = st.radio(
+        "Explainability source",
+        options=["Built-in Feature Importance", "Real SHAP"],
+        horizontal=True,
+        key="explainability_source_choice",
+    )
+
+    if source_choice == "Real SHAP":
+        if not shap_result.get("available", False):
+            st.warning(shap_result.get("message", "SHAP is unavailable."))
+            return
+
+        shap_features = shap_result.get("global_importance", [])
+
+        if shap_features:
+            shap_df = pd.DataFrame(shap_features)
+            st.markdown("#### Global SHAP Importance")
+            st.dataframe(shap_df, use_container_width=True)
+
+            chart_df = shap_df[["feature", "mean_abs_shap"]].copy()
+            chart_df = chart_df.sort_values("mean_abs_shap", ascending=True)
+
+            fig = px.bar(
+                chart_df,
+                x="mean_abs_shap",
+                y="feature",
+                orientation="h",
+                title="Mean Absolute SHAP Value",
+            )
+            fig.update_layout(height=520, margin=dict(l=10, r=10, t=52, b=10))
+            st.plotly_chart(fig, use_container_width=True, key="real_shap_global_bar")
+
+        pos = shap_result.get("positive_contributors", [])
+        neg = shap_result.get("negative_contributors", [])
+
+        col_pos, col_neg = st.columns(2)
+
+        with col_pos:
+            st.markdown("#### Top Positive SHAP Contributors")
+            if pos:
+                st.dataframe(pd.DataFrame(pos), use_container_width=True)
+            else:
+                st.info("No positive contributors found.")
+
+        with col_neg:
+            st.markdown("#### Top Negative SHAP Contributors")
+            if neg:
+                st.dataframe(pd.DataFrame(neg), use_container_width=True)
+            else:
+                st.info("No negative contributors found.")
+
+        plots = shap_result.get("plots", {})
+
+        bar_plot = plots.get("bar_plot_base64")
+        beeswarm_plot = plots.get("beeswarm_plot_base64")
+
+        if bar_plot:
+            st.markdown("#### SHAP Bar Plot")
+            st.image(base64.b64decode(bar_plot), use_container_width=True)
+
+        if beeswarm_plot:
+            st.markdown("#### SHAP Beeswarm Plot")
+            st.image(base64.b64decode(beeswarm_plot), use_container_width=True)
+
+        local_explanations = shap_result.get("local_explanations", [])
+        if local_explanations:
+            st.markdown("#### Local SHAP Explanations")
+            selected_sample = st.selectbox(
+                "Select sampled row",
+                options=list(range(len(local_explanations))),
+                format_func=lambda i: f"Sample {local_explanations[i].get('sample_position')} | Index {local_explanations[i].get('sample_index')}",
+                key="local_shap_sample_select",
+            )
+
+            local = local_explanations[selected_sample]
+            local_df = pd.DataFrame(local.get("top_contributors", []))
+
+            if not local_df.empty:
+                st.dataframe(local_df, use_container_width=True)
+
+                local_chart = local_df[["feature", "shap_value"]].copy()
+                local_chart = local_chart.sort_values("shap_value")
+
+                fig = px.bar(
+                    local_chart,
+                    x="shap_value",
+                    y="feature",
+                    orientation="h",
+                    title="Local SHAP Contributions",
+                )
+                fig.update_layout(height=520, margin=dict(l=10, r=10, t=52, b=10))
+                st.plotly_chart(fig, use_container_width=True, key="local_shap_bar")
+
+    else:
+        if not builtin.get("available", False):
+            st.warning(builtin.get("message", "Built-in feature importance unavailable."))
+            return
+
+        top_features = builtin.get("top_features", [])
+
+        if top_features:
+            feature_df = pd.DataFrame(top_features)
+            st.markdown("#### Built-in Feature Importance")
+            st.dataframe(feature_df, use_container_width=True)
+
+            value_col = (
+                "absolute_importance"
+                if "absolute_importance" in feature_df.columns
+                else "importance"
+            )
+
+            chart_df = feature_df[["feature", value_col]].copy()
+            chart_df = chart_df.sort_values(value_col, ascending=True)
+
+            fig = px.bar(
+                chart_df,
+                x=value_col,
+                y="feature",
+                orientation="h",
+                title=f"Built-in Importance - {builtin.get('method', 'model')}",
+            )
+            fig.update_layout(height=520, margin=dict(l=10, r=10, t=52, b=10))
+            st.plotly_chart(fig, use_container_width=True, key="builtin_importance_bar")
+
+    with st.expander("Explainability Notes"):
+        for note in explainability.get("notes", []):
+            st.caption(note)
+
+    with st.expander("Raw Explainability JSON"):
+        st.json(explainability)
+
+def show_mlflow_results(mlflow_results: dict[str, Any]) -> None:
+    st.subheader("🧪 MLflow Tracking")
+
+    if not mlflow_results:
+        st.warning("MLflow results not available.")
+        return
+
+    models_logged = mlflow_results.get("models_logged", [])
+    model_logged = mlflow_results.get("model_logged", False)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Experiment", mlflow_results.get("experiment_name", "N/A"))
+    c2.metric("Runs Logged", len(models_logged))
+    c3.metric("Best Model Logged", str(model_logged))
+
+    if models_logged:
+        st.write("Models logged:")
+        st.write(", ".join(models_logged))
+
+    logged_uri = mlflow_results.get("logged_model_uri")
+    if logged_uri:
+        st.write("Logged best model URI:")
+        st.code(logged_uri)
+
+    message = mlflow_results.get("message")
+    if message:
+        st.caption(message)
+
+    if mlflow_results.get("error"):
+        st.warning(mlflow_results["error"])
+
+
+def show_ai_report(report_text: str) -> None:
+    st.subheader("📄 Generated AI Audit Report")
+
+    if not report_text:
+        st.warning("Audit report not available.")
+        return
+
+    st.markdown(report_text)
+
+    st.download_button(
+        label="Download Markdown Report",
+        data=report_text,
+        file_name="audit_report.md",
+        mime="text/markdown",
+    )
+
+
+def show_downloads(result: dict[str, Any]) -> None:
+    st.subheader("⬇️ Downloads")
+
+    report_text = result.get("audit_report", "")
+    json_text = to_json_download(result)
+
+    baseline_results = result.get("baseline_results", {})
+    baseline_csv = ""
+    if baseline_results.get("results"):
+        rows = []
+        for model_name, metrics in baseline_results["results"].items():
+            row = {"Model": model_name}
+            row.update(metrics)
+            rows.append(row)
+        baseline_csv = pd.DataFrame(rows).to_csv(index=False)
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.download_button(
+            label="Download Report (.md)",
+            data=report_text,
+            file_name="audit_report.md",
+            mime="text/markdown",
+            disabled=not bool(report_text),
+            use_container_width=True,
+        )
+
+    with c2:
+        st.download_button(
+            label="Download Result (.json)",
+            data=json_text,
+            file_name="audit_result.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+    with c3:
+        st.download_button(
+            label="Download Model Metrics (.csv)",
+            data=baseline_csv,
+            file_name="baseline_metrics.csv",
+            mime="text/csv",
+            disabled=not bool(baseline_csv),
+            use_container_width=True,
+        )
+
+
+def answer_audit_question(audit_result: dict[str, Any], user_question: str) -> str:
+    response = ask_about_audit(
+        audit_context=audit_result,
+        user_question=user_question,
+    )
+
+    if response:
+        return response
+
+    return (
+        "LLM response is not available right now. Please review the audit report "
+        "and deterministic sections above."
+    )
+
+
+def show_audit_chat(result: dict[str, Any]) -> None:
+    st.subheader("💬 Ask AI About This Audit")
+
+    suggested_questions = [
+        "Why was this primary metric recommended?",
+        "Which leakage risks should I review first?",
+        "Is this dataset ready for final model training?",
+        "Which baseline model performed best and why?",
+        "What should I improve before tuning models?",
+    ]
+
+    cols = st.columns(len(suggested_questions))
+    for idx, question in enumerate(suggested_questions):
+        with cols[idx]:
+            if st.button(question, key=f"suggested_q_{idx}", use_container_width=True):
+                st.session_state["pending_question"] = question
+
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = []
+
+    for message in st.session_state["chat_history"]:
+        role = message.get("role", "assistant")
+        content = message.get("content", "")
+
+        with st.chat_message(role):
+            st.markdown(content)
+
+    user_question = st.chat_input(
+        "Ask about this audit. Example: Why is F1 Score recommended?"
+    )
+
+    pending_question = st.session_state.pop("pending_question", None)
+    final_question = pending_question or user_question
+
+    if final_question:
+        st.session_state["chat_history"].append(
+            {"role": "user", "content": final_question}
+        )
+
+        with st.chat_message("user"):
+            st.markdown(final_question)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Generating grounded answer..."):
+                answer = answer_audit_question(
+                    audit_result=result,
+                    user_question=final_question.strip(),
+                )
+            st.markdown(answer)
+
+        st.session_state["chat_history"].append(
+            {"role": "assistant", "content": answer}
+        )
+
+    if st.button("Clear Chat"):
+        st.session_state["chat_history"] = []
+        st.rerun()
+
+
+def show_result_dashboard() -> None:
+    if "audit_result" not in st.session_state:
+        return
+
     result = st.session_state["audit_result"]
     df_preview = st.session_state["df_preview"]
     target_column = st.session_state["target_column"]
 
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    show_verdict(result)
+    show_top_kpi_row(result)
 
-    with col1:
-        st.metric("Problem Type", result.get("problem_type", "N/A"))
-
-    with col2:
-        leakage_count = result.get("leakage", {}).get(
-            "total_possible_leakage_risks",
-            0,
-        )
-        st.metric("Leakage Risks", leakage_count)
-
-    with col3:
-        best_model_name = (
-            result.get("baseline_results", {})
-            .get("best_model", {})
-            .get("model_name", "N/A")
-        )
-        st.metric("Best Baseline", best_model_name)
+    runtime = st.session_state.get("last_runtime_seconds")
+    if runtime:
+        st.caption(f"Last audit runtime: {runtime} seconds")
 
     st.divider()
 
     tabs = st.tabs(
         [
-            "Overview",
-            "Data Quality",
-            "Metrics",
-            "Imbalance",
-            "Leakage",
-            "Models",
-            "MLflow",
-            "AI Report",
-            "Downloads",
+            "🏠 Overview",
+            "🧩 Data Quality",
+            "📌 Metrics",
+            "⚖️ Imbalance",
+            "🚨 Leakage",
+            "🤖 Models",
+            "🔍 Explainability",
+            "🧪 MLflow",
+            "📄 AI Report",
+            "⬇️ Downloads",
         ]
     )
 
@@ -776,13 +1316,34 @@ if "audit_result" in st.session_state:
         show_baseline_results(result.get("baseline_results", {}))
 
     with tabs[6]:
-        show_mlflow_results(result.get("mlflow_results", {}))
+        show_explainability(result.get("explainability", {}))
 
     with tabs[7]:
-        show_ai_report(result.get("audit_report", ""))
+        show_mlflow_results(result.get("mlflow_results", {}))
 
     with tabs[8]:
+        show_ai_report(result.get("audit_report", ""))
+
+    with tabs[9]:
         show_downloads(result)
 
     st.divider()
     show_audit_chat(result)
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+show_hero()
+show_sidebar()
+show_upload_panel()
+show_result_dashboard()
+
+st.markdown(
+    f"""
+    <div class="footer">
+        Agentic ML Audit Copilot v{get_project_version()} · Built with Streamlit, scikit-learn, MLflow, Plotly, Groq, and SHAP-ready explainability.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

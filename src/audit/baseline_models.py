@@ -8,6 +8,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     confusion_matrix,
     f1_score,
     mean_absolute_error,
@@ -17,6 +18,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
@@ -31,6 +33,19 @@ logger = get_logger(__name__)
 CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
 
 
+def as_bool(value: Any) -> bool:
+    """
+    Convert config values safely into boolean.
+    """
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.lower().strip() in {"true", "1", "yes", "y"}
+
+    return bool(value)
+
+
 def train_baseline_models(
     df: pd.DataFrame,
     target_column: str,
@@ -40,17 +55,26 @@ def train_baseline_models(
     Train and evaluate baseline models.
 
     These are sanity-check baselines, not final optimized models.
+
+    Important:
+    - trained_model_objects is intentionally returned for MLflow/explainability.
+    - sample_features is intentionally returned for explainability.
+    - API/UI layers should remove these non-serializable/heavy objects before response/download.
     """
     try:
         logger.info("Starting baseline model training")
 
         validate_inputs(df, target_column, problem_type)
-        problem_type = problem_type.lower().strip()
+        normalized_problem_type = problem_type.lower().strip()
 
         random_state = int(get_config_value("modeling.random_state", 42))
         test_size = float(get_config_value("modeling.test_size", 0.2))
+        enable_cross_validation = as_bool(
+            get_config_value("modeling.enable_cross_validation", False)
+        )
+        cv_folds = int(get_config_value("modeling.cv_folds", 5))
 
-        if problem_type == "regression":
+        if normalized_problem_type == "regression":
             validate_regression_target(df[target_column])
 
         preprocessing_info = build_preprocessing_pipeline(
@@ -63,29 +87,29 @@ def train_baseline_models(
         X_train, X_test, y_train, y_test = create_train_test_split(
             df=df,
             target_column=target_column,
-            problem_type=problem_type,
+            problem_type=normalized_problem_type,
             test_size=test_size,
             random_state=random_state,
         )
 
         label_encoder = None
+        class_labels: list[str] = []
 
-        if problem_type in CLASSIFICATION_TYPES:
+        if normalized_problem_type in CLASSIFICATION_TYPES:
             label_encoder = LabelEncoder()
             y_train_model = label_encoder.fit_transform(y_train.astype(str))
             y_test_model = label_encoder.transform(y_test.astype(str))
-            class_labels = label_encoder.classes_.tolist()
+            class_labels = [str(label) for label in label_encoder.classes_]
         else:
             y_train_model = y_train
             y_test_model = y_test
-            class_labels = []
 
-        models = get_baseline_models(problem_type, random_state)
+        models = get_baseline_models(normalized_problem_type, random_state)
 
         results: dict[str, Any] = {}
 
         for model_name, model in models.items():
-            logger.info(f"Training baseline model: {model_name}")
+            logger.info("Training baseline model: %s", model_name)
 
             pipeline = Pipeline(
                 steps=[
@@ -97,26 +121,38 @@ def train_baseline_models(
             pipeline.fit(X_train, y_train_model)
             y_pred = pipeline.predict(X_test)
 
-            if problem_type in CLASSIFICATION_TYPES:
+            if normalized_problem_type in CLASSIFICATION_TYPES:
                 metrics = evaluate_classification(
                     model=pipeline,
                     X_test=X_test,
-                    y_test=y_test_model,
-                    y_pred=y_pred,
-                    problem_type=problem_type,
+                    y_test=np.asarray(y_test_model),
+                    y_pred=np.asarray(y_pred),
+                    problem_type=normalized_problem_type,
                 )
 
                 confusion = confusion_matrix(y_test_model, y_pred).tolist()
 
-            elif problem_type == "regression":
+            elif normalized_problem_type == "regression":
                 metrics = evaluate_regression(
                     y_test=y_test_model,
-                    y_pred=y_pred,
+                    y_pred=np.asarray(y_pred),
                 )
                 confusion = None
 
             else:
-                raise ModelTrainingError(f"Unsupported problem type: {problem_type}")
+                raise ModelTrainingError(
+                    f"Unsupported problem type: {normalized_problem_type}"
+                )
+
+            if enable_cross_validation:
+                cv_results = run_cross_validation(
+                    pipeline=pipeline,
+                    X=X_train,
+                    y=y_train_model,
+                    problem_type=normalized_problem_type,
+                    cv_folds=cv_folds,
+                )
+                metrics.update(cv_results)
 
             results[model_name] = {
                 "metrics": metrics,
@@ -124,12 +160,12 @@ def train_baseline_models(
                 "confusion_matrix": confusion,
             }
 
-            logger.info(f"Completed model: {model_name}")
+            logger.info("Completed model: %s", model_name)
 
-        best_model = select_best_model(results, problem_type)
+        best_model = select_best_model(results, normalized_problem_type)
 
         output: dict[str, Any] = {
-            "problem_type": problem_type,
+            "problem_type": normalized_problem_type,
             "target_column": target_column,
             "models_trained": list(models.keys()),
             "results": {
@@ -153,16 +189,29 @@ def train_baseline_models(
                     "total_features_before_encoding",
                     0,
                 ),
+                "warnings": preprocessing_info.get("warnings", []),
             },
             "evaluation_details": {
                 "test_size": test_size,
                 "random_state": random_state,
+                "cross_validation_enabled": enable_cross_validation,
+                "cv_folds": cv_folds if enable_cross_validation else None,
                 "class_labels": class_labels,
+                "label_encoder_used": label_encoder is not None,
+                "train_shape": tuple(X_train.shape),
+                "test_shape": tuple(X_test.shape),
                 "confusion_matrices": {
                     model_name: model_result["confusion_matrix"]
                     for model_name, model_result in results.items()
                     if model_result["confusion_matrix"] is not None
                 },
+            },
+            "runtime_objects": {
+                "sample_features": X_test.copy(),
+                "sample_target": y_test.copy(),
+                "train_features": X_train.copy(),
+                "test_features": X_test.copy(),
+                "label_encoder": label_encoder,
             },
             "message": "Baseline model training completed successfully.",
             "note": "These are baseline sanity-check models, not final optimized models.",
@@ -175,7 +224,7 @@ def train_baseline_models(
         raise
 
     except Exception as error:
-        logger.error(f"Baseline model training failed: {error}")
+        logger.exception("Baseline model training failed.")
         raise ModelTrainingError(
             "Baseline model training failed.",
             error_detail=str(error),
@@ -195,6 +244,11 @@ def validate_inputs(df: pd.DataFrame, target_column: str, problem_type: str) -> 
     if problem_type is None or str(problem_type).strip() == "":
         raise ModelTrainingError("Problem type is required.")
 
+    normalized_problem_type = problem_type.lower().strip()
+
+    if normalized_problem_type not in CLASSIFICATION_TYPES and normalized_problem_type != "regression":
+        raise ModelTrainingError(f"Unsupported problem type: {normalized_problem_type}")
+
     if df[target_column].dropna().nunique() < 2:
         raise ModelTrainingError("Target column must contain at least 2 unique values.")
 
@@ -205,19 +259,30 @@ def validate_regression_target(target: pd.Series) -> None:
 
 
 def get_baseline_models(problem_type: str, random_state: int) -> dict[str, Any]:
+    """
+    Return small, reliable baseline models.
+    """
+    parallel_jobs = int(get_config_value("performance.parallel_jobs", -1))
+
+    rf_estimators = int(get_config_value("modeling.random_forest_estimators", 200))
+    rf_min_samples_leaf = int(
+        get_config_value("modeling.random_forest_min_samples_leaf", 2)
+    )
+    logistic_max_iter = int(get_config_value("modeling.logistic_max_iter", 1000))
+
     if problem_type in CLASSIFICATION_TYPES:
         return {
             "Logistic Regression": LogisticRegression(
-                max_iter=1000,
+                max_iter=logistic_max_iter,
                 class_weight="balanced",
                 random_state=random_state,
             ),
             "Random Forest Classifier": RandomForestClassifier(
-                n_estimators=200,
-                min_samples_leaf=2,
+                n_estimators=rf_estimators,
+                min_samples_leaf=rf_min_samples_leaf,
                 class_weight="balanced",
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=parallel_jobs,
             ),
         }
 
@@ -225,10 +290,10 @@ def get_baseline_models(problem_type: str, random_state: int) -> dict[str, Any]:
         return {
             "Linear Regression": LinearRegression(),
             "Random Forest Regressor": RandomForestRegressor(
-                n_estimators=200,
-                min_samples_leaf=2,
+                n_estimators=rf_estimators,
+                min_samples_leaf=rf_min_samples_leaf,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=parallel_jobs,
             ),
         }
 
@@ -242,8 +307,12 @@ def evaluate_classification(
     y_pred: np.ndarray,
     problem_type: str,
 ) -> dict[str, float]:
+    """
+    Evaluate classification baseline.
+    """
     metrics = {
         "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+        "balanced_accuracy": round(float(balanced_accuracy_score(y_test, y_pred)), 4),
         "precision_weighted": round(
             float(precision_score(y_test, y_pred, average="weighted", zero_division=0)),
             4,
@@ -261,6 +330,20 @@ def evaluate_classification(
             4,
         ),
     }
+
+    if problem_type == "binary_classification":
+        metrics["precision_binary"] = round(
+            float(precision_score(y_test, y_pred, average="binary", zero_division=0)),
+            4,
+        )
+        metrics["recall_binary"] = round(
+            float(recall_score(y_test, y_pred, average="binary", zero_division=0)),
+            4,
+        )
+        metrics["f1_binary"] = round(
+            float(f1_score(y_test, y_pred, average="binary", zero_division=0)),
+            4,
+        )
 
     try:
         if hasattr(model, "predict_proba"):
@@ -286,17 +369,21 @@ def evaluate_classification(
                 )
 
     except Exception as error:
-        logger.warning(f"Probability-based metrics skipped: {error}")
+        logger.warning("Probability-based metrics skipped: %s", error)
 
     return metrics
 
 
 def evaluate_regression(y_test: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
+    """
+    Evaluate regression baseline.
+    """
     mse = mean_squared_error(y_test, y_pred)
     rmse = float(np.sqrt(mse))
 
     metrics = {
         "mae": round(float(mean_absolute_error(y_test, y_pred)), 4),
+        "mse": round(float(mse), 4),
         "rmse": round(rmse, 4),
         "r2_score": round(float(r2_score(y_test, y_pred)), 4),
     }
@@ -319,18 +406,70 @@ def evaluate_regression(y_test: pd.Series, y_pred: np.ndarray) -> dict[str, floa
             metrics["mape"] = round(float(mape), 4)
 
     except Exception as error:
-        logger.warning(f"MAPE skipped: {error}")
+        logger.warning("MAPE skipped: %s", error)
 
     return metrics
 
 
+def run_cross_validation(
+    pipeline: Pipeline,
+    X: pd.DataFrame,
+    y: Any,
+    problem_type: str,
+    cv_folds: int,
+) -> dict[str, float]:
+    """
+    Run optional cross-validation on training data.
+    """
+    try:
+        if cv_folds < 2:
+            return {}
+
+        if problem_type in CLASSIFICATION_TYPES:
+            scoring = str(get_config_value("metrics.classification_default", "f1_weighted"))
+        else:
+            scoring = "neg_root_mean_squared_error"
+
+        scores = cross_val_score(
+            pipeline,
+            X,
+            y,
+            cv=cv_folds,
+            scoring=scoring,
+            n_jobs=int(get_config_value("performance.parallel_jobs", -1)),
+        )
+
+        if problem_type == "regression":
+            scores = -scores
+
+        return {
+            "cv_mean": round(float(scores.mean()), 4),
+            "cv_std": round(float(scores.std()), 4),
+        }
+
+    except Exception as error:
+        logger.warning("Cross-validation skipped: %s", error)
+        return {}
+
+
 def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, Any]:
+    """
+    Select best baseline model using config-driven metric.
+    """
     if problem_type in CLASSIFICATION_TYPES:
-        primary_metric = "f1_score"
+        primary_metric = str(get_config_value("metrics.classification_default", "f1_score"))
+
+        if primary_metric == "f1_weighted":
+            primary_metric = "f1_score"
+
         higher_is_better = True
     else:
-        primary_metric = "rmse"
-        higher_is_better = False
+        primary_metric = str(get_config_value("metrics.regression_default", "rmse"))
+        higher_is_better = primary_metric not in {"mae", "mse", "rmse", "mape"}
+
+        if primary_metric not in {"mae", "mse", "rmse", "mape", "r2_score"}:
+            primary_metric = "rmse"
+            higher_is_better = False
 
     best_model_name = None
     best_score = None
@@ -361,8 +500,36 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
         "model_name": best_model_name,
         "selection_metric": primary_metric,
         "score": float(best_score),
-        "higher_is_better": higher_is_better,
+        "higher_is_better": bool(higher_is_better),
     }
+
+
+def get_sample_features_for_explainability(
+    baseline_results: dict[str, Any],
+) -> pd.DataFrame | None:
+    """
+    Extract sample features from baseline output for explainability.
+    """
+    runtime_objects = baseline_results.get("runtime_objects", {})
+
+    sample_features = runtime_objects.get("sample_features")
+
+    if isinstance(sample_features, pd.DataFrame):
+        return sample_features
+
+    return None
+
+
+def strip_runtime_objects(baseline_results: dict[str, Any]) -> dict[str, Any]:
+    """
+    Return JSON-safe baseline results for API/UI/downloads.
+
+    This removes trained sklearn model objects and runtime sample data.
+    """
+    cleaned = dict(baseline_results)
+    cleaned.pop("trained_model_objects", None)
+    cleaned.pop("runtime_objects", None)
+    return cleaned
 
 
 if __name__ == "__main__":
@@ -381,10 +548,6 @@ if __name__ == "__main__":
         problem_type=problem_info["problem_type"],
     )
 
-    printable_output = {
-        key: value
-        for key, value in output.items()
-        if key != "trained_model_objects"
-    }
+    printable_output = strip_runtime_objects(output)
 
     print(printable_output)
