@@ -12,6 +12,9 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 def load_dataset(file_path: str | Path) -> pd.DataFrame:
+    """
+    Load and validate a CSV dataset.
+    """
     file_path = Path(file_path)
 
     if not file_path.is_absolute():
@@ -21,7 +24,7 @@ def load_dataset(file_path: str | Path) -> pd.DataFrame:
         raise InvalidDatasetError(f"Dataset file not found: {file_path}")
 
     if file_path.suffix.lower() != ".csv":
-        raise InvalidDatasetError("Only CSV files are supported in MVP.")
+        raise InvalidDatasetError("Only CSV files are supported currently.")
 
     try:
         df = pd.read_csv(file_path)
@@ -41,6 +44,12 @@ def load_dataset(file_path: str | Path) -> pd.DataFrame:
 
 
 def validate_target_column(df: pd.DataFrame, target_column: str) -> None:
+    """
+    Validate that the selected target column exists and is usable.
+    """
+    if df is None or df.empty:
+        raise InvalidDatasetError("Dataset is empty.")
+
     if not target_column:
         raise InvalidTargetColumnError("Target column is required.")
 
@@ -56,9 +65,13 @@ def validate_target_column(df: pd.DataFrame, target_column: str) -> None:
 
 
 def get_column_types(df: pd.DataFrame, target_column: str) -> dict[str, list[str]]:
+    """
+    Detect feature column types excluding the target column.
+    """
     feature_df = df.drop(columns=[target_column])
 
     numeric_columns = feature_df.select_dtypes(include=["number"]).columns.tolist()
+
     categorical_columns = feature_df.select_dtypes(
         include=["object", "string", "category", "bool"]
     ).columns.tolist()
@@ -67,10 +80,10 @@ def get_column_types(df: pd.DataFrame, target_column: str) -> dict[str, list[str
         include=["datetime64", "datetimetz"]
     ).columns.tolist()
 
+    known_columns = set(numeric_columns + categorical_columns + datetime_columns)
+
     other_columns = [
-        col
-        for col in feature_df.columns
-        if col not in numeric_columns + categorical_columns + datetime_columns
+        column for column in feature_df.columns if column not in known_columns
     ]
 
     return {
@@ -82,6 +95,9 @@ def get_column_types(df: pd.DataFrame, target_column: str) -> dict[str, list[str
 
 
 def get_missing_values_summary(df: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """
+    Return missing value count and percentage for columns with missing values.
+    """
     missing_count = df.isna().sum()
     missing_percent = (missing_count / len(df) * 100).round(2)
 
@@ -96,19 +112,24 @@ def get_missing_values_summary(df: pd.DataFrame) -> dict[str, dict[str, float]]:
 
 
 def get_target_summary(df: pd.DataFrame, target_column: str) -> dict[str, Any]:
+    """
+    Build a summary of the target column.
+    """
     target_series = df[target_column]
 
     summary: dict[str, Any] = {
         "target_column": target_column,
         "missing_count": int(target_series.isna().sum()),
-        "missing_percent": float((target_series.isna().mean() * 100).round(2)),
+        "missing_percent": float(round(target_series.isna().mean() * 100, 2)),
         "unique_values": int(target_series.nunique(dropna=True)),
         "dtype": str(target_series.dtype),
     }
 
     if target_series.nunique(dropna=True) <= 20:
         counts = target_series.value_counts(dropna=False)
-        percentages = (target_series.value_counts(dropna=False, normalize=True) * 100).round(2)
+        percentages = (
+            target_series.value_counts(dropna=False, normalize=True) * 100
+        ).round(2)
 
         summary["distribution"] = {
             str(index): {
@@ -124,32 +145,35 @@ def get_target_summary(df: pd.DataFrame, target_column: str) -> dict[str, Any]:
 
 
 def profile_dataset(df: pd.DataFrame, target_column: str) -> dict[str, Any]:
+    """
+    Generate a deterministic profile of the dataset before modeling.
+    """
     validate_target_column(df, target_column)
 
     column_types = get_column_types(df, target_column)
 
     profile = {
-    "shape": {
-        "rows": int(df.shape[0]),
-        "columns": int(df.shape[1]),
-    },
-    "columns": df.columns.tolist(),
-    "dtypes": {column: str(dtype) for column, dtype in df.dtypes.items()},
-    "duplicate_rows": int(df.duplicated().sum()),
-    "duplicate_rows_percent": float((df.duplicated().mean() * 100).round(2)),
-    "missing_values": get_missing_values_summary(df),
+        "shape": {
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+        },
+        "columns": df.columns.tolist(),
+        "dtypes": {
+            column: str(dtype)
+            for column, dtype in df.dtypes.items()
+        },
+        "duplicate_rows": int(df.duplicated().sum()),
+        "duplicate_rows_percent": float(round(df.duplicated().mean() * 100, 2)),
+        "missing_values": get_missing_values_summary(df),
+        "numeric_columns": column_types["numeric_columns"],
+        "categorical_columns": column_types["categorical_columns"],
+        "datetime_columns": column_types["datetime_columns"],
+        "other_columns": column_types["other_columns"],
+        "column_types": column_types,
+        "target_summary": get_target_summary(df, target_column),
+    }
 
-    "numeric_columns": column_types["numeric_columns"],
-    "categorical_columns": column_types["categorical_columns"],
-    "datetime_columns": column_types["datetime_columns"],
-    "other_columns": column_types["other_columns"],
-
-    "column_types": column_types,
-
-    "target_summary": get_target_summary(df, target_column),
-}
     logger.info("Dataset profiling completed")
-
     return profile
 
 
@@ -161,4 +185,3 @@ if __name__ == "__main__":
     profile = profile_dataset(df, target_column)
 
     print(profile)
-    

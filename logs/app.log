@@ -1015,3 +1015,101 @@
 2026-07-08 05:46:19 | INFO | src.audit.llm_report | llm_report.py:235 | Groq LLM audit report generated successfully
 2026-07-08 05:46:19 | INFO | src.audit.workflow | workflow.py:206 | Workflow node completed: audit_report
 2026-07-08 05:46:19 | INFO | src.audit.workflow | workflow.py:269 | Agentic ML audit workflow completed successfully
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:251 | Starting Agentic ML audit workflow
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:51 | Workflow node started: load_dataset
+2026-07-08 06:25:36 | INFO | src.audit.profiler | profiler.py:37 | Dataset loaded successfully: C:\Desktop\agentic-ml-audit-copilot\data\uploads\51bcd106-5ec0-4062-8dcd-064c9b7de587_WA_Fn-UseC_-Telco-Customer-Churn.csv
+2026-07-08 06:25:36 | INFO | src.audit.profiler | profiler.py:38 | Dataset shape: (7043, 21)
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:56 | Workflow node completed: load_dataset
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:71 | Workflow node started: profile_dataset
+2026-07-08 06:25:36 | INFO | src.audit.profiler | profiler.py:151 | Dataset profiling completed
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:78 | Workflow node completed: profile_dataset
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:86 | Workflow node started: problem_type
+2026-07-08 06:25:36 | INFO | src.audit.problem_type | problem_type.py:68 | Problem type detected: binary_classification
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:96 | Workflow node completed: problem_type
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:104 | Workflow node started: data_quality
+2026-07-08 06:25:36 | INFO | src.audit.data_quality | data_quality.py:310 | Data quality audit completed
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:111 | Workflow node completed: data_quality
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:119 | Workflow node started: leakage
+2026-07-08 06:25:36 | INFO | src.audit.leakage | leakage.py:285 | Leakage check completed
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:126 | Workflow node completed: leakage
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:134 | Workflow node started: metric_recommendation
+2026-07-08 06:25:36 | INFO | src.audit.metric_recommender | metric_recommender.py:22 | Starting metric recommendation
+2026-07-08 06:25:36 | INFO | src.audit.metric_recommender | metric_recommender.py:86 | Metric recommendation completed successfully
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:140 | Workflow node completed: metric_recommendation
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:148 | Workflow node started: class_imbalance
+2026-07-08 06:25:36 | INFO | src.audit.class_imbalance | class_imbalance.py:22 | Starting class imbalance detection
+2026-07-08 06:25:36 | INFO | src.audit.class_imbalance | class_imbalance.py:104 | Class imbalance detection completed successfully
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:156 | Workflow node completed: class_imbalance
+2026-07-08 06:25:36 | INFO | src.audit.workflow | workflow.py:164 | Workflow node started: baseline_model
+2026-07-08 06:25:36 | INFO | src.audit.baseline_models | baseline_models.py:39 | Starting baseline model training
+2026-07-08 06:25:37 | INFO | src.audit.preprocessing | preprocessing.py:50 | Starting preprocessing pipeline creation
+2026-07-08 06:25:37 | INFO | src.audit.preprocessing | preprocessing.py:125 | Preprocessing pipeline created successfully
+2026-07-08 06:25:37 | INFO | src.audit.preprocessing | preprocessing.py:181 | Starting train-test split
+2026-07-08 06:25:37 | INFO | src.audit.preprocessing | preprocessing.py:147 | Splitting features and target
+2026-07-08 06:25:37 | INFO | src.audit.preprocessing | preprocessing.py:220 | Train-test split completed successfully
+2026-07-08 06:25:37 | INFO | src.audit.baseline_models | baseline_models.py:69 | Training baseline model: Logistic Regression
+2026-07-08 06:25:47 | INFO | src.audit.baseline_models | baseline_models.py:99 | Completed model: Logistic Regression
+2026-07-08 06:25:47 | INFO | src.audit.baseline_models | baseline_models.py:69 | Training baseline model: Random Forest Classifier
+2026-07-08 06:25:55 | INFO | src.audit.baseline_models | baseline_models.py:99 | Completed model: Random Forest Classifier
+2026-07-08 06:25:55 | INFO | src.audit.workflow | workflow.py:172 | Workflow node completed: baseline_model
+2026-07-08 06:25:55 | INFO | src.audit.workflow | workflow.py:180 | Workflow node started: mlflow
+2026-07-08 06:25:55 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:23 | Starting MLflow tracking
+2026-07-08 06:25:55 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:54 | Logging MLflow run for model: Logistic Regression
+2026-07-08 06:25:56 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:102 | Best model logged to MLflow: runs:/0aabe32226874af69965f9b53f7f9cf1/baseline_model
+2026-07-08 06:25:56 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:54 | Logging MLflow run for model: Random Forest Classifier
+2026-07-08 06:25:56 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:120 | MLflow tracking completed successfully
+2026-07-08 06:25:56 | INFO | src.audit.workflow | workflow.py:186 | Workflow node completed: mlflow
+2026-07-08 06:25:56 | INFO | src.audit.workflow | workflow.py:194 | Workflow node started: audit_report
+2026-07-08 06:25:56 | INFO | src.audit.llm_report | llm_report.py:201 | Generating LLM audit report using Groq model: llama-3.3-70b-versatile
+2026-07-08 06:25:59 | INFO | src.audit.llm_report | llm_report.py:235 | Groq LLM audit report generated successfully
+2026-07-08 06:25:59 | INFO | src.audit.workflow | workflow.py:206 | Workflow node completed: audit_report
+2026-07-08 06:25:59 | INFO | src.audit.workflow | workflow.py:269 | Agentic ML audit workflow completed successfully
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:250 | Starting Agentic ML audit workflow
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:50 | Workflow node started: load_dataset
+2026-07-08 06:55:25 | INFO | src.audit.profiler | profiler.py:40 | Dataset loaded successfully: C:\Desktop\agentic-ml-audit-copilot\data\uploads\c5f2046b-ab69-4645-8f1c-7ecbd70a22fb_winequality-red.csv
+2026-07-08 06:55:25 | INFO | src.audit.profiler | profiler.py:41 | Dataset shape: (1599, 12)
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:55 | Workflow node completed: load_dataset
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:70 | Workflow node started: profile_dataset
+2026-07-08 06:55:25 | INFO | src.audit.profiler | profiler.py:176 | Dataset profiling completed
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:77 | Workflow node completed: profile_dataset
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:85 | Workflow node started: problem_type
+2026-07-08 06:55:25 | INFO | src.audit.problem_type | problem_type.py:95 | Problem type detected: multiclass_classification
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:95 | Workflow node completed: problem_type
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:103 | Workflow node started: data_quality
+2026-07-08 06:55:25 | INFO | src.audit.data_quality | data_quality.py:310 | Data quality audit completed
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:110 | Workflow node completed: data_quality
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:118 | Workflow node started: leakage
+2026-07-08 06:55:25 | INFO | src.audit.leakage | leakage.py:285 | Leakage check completed
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:125 | Workflow node completed: leakage
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:133 | Workflow node started: metric_recommendation
+2026-07-08 06:55:25 | INFO | src.audit.metric_recommender | metric_recommender.py:22 | Starting metric recommendation
+2026-07-08 06:55:25 | INFO | src.audit.metric_recommender | metric_recommender.py:89 | Metric recommendation completed successfully
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:139 | Workflow node completed: metric_recommendation
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:147 | Workflow node started: class_imbalance
+2026-07-08 06:55:25 | INFO | src.audit.class_imbalance | class_imbalance.py:22 | Starting class imbalance detection
+2026-07-08 06:55:25 | INFO | src.audit.class_imbalance | class_imbalance.py:104 | Class imbalance detection completed successfully
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:155 | Workflow node completed: class_imbalance
+2026-07-08 06:55:25 | INFO | src.audit.workflow | workflow.py:163 | Workflow node started: baseline_model
+2026-07-08 06:55:25 | INFO | src.audit.baseline_models | baseline_models.py:39 | Starting baseline model training
+2026-07-08 06:55:25 | INFO | src.audit.preprocessing | preprocessing.py:53 | Starting preprocessing pipeline creation
+2026-07-08 06:55:25 | INFO | src.audit.preprocessing | preprocessing.py:132 | Preprocessing pipeline created successfully
+2026-07-08 06:55:25 | INFO | src.audit.preprocessing | preprocessing.py:188 | Starting train-test split
+2026-07-08 06:55:25 | INFO | src.audit.preprocessing | preprocessing.py:154 | Splitting features and target
+2026-07-08 06:55:25 | INFO | src.audit.preprocessing | preprocessing.py:227 | Train-test split completed successfully
+2026-07-08 06:55:25 | INFO | src.audit.baseline_models | baseline_models.py:69 | Training baseline model: Logistic Regression
+2026-07-08 06:55:25 | INFO | src.audit.baseline_models | baseline_models.py:99 | Completed model: Logistic Regression
+2026-07-08 06:55:25 | INFO | src.audit.baseline_models | baseline_models.py:69 | Training baseline model: Random Forest Classifier
+2026-07-08 06:55:26 | INFO | src.audit.baseline_models | baseline_models.py:99 | Completed model: Random Forest Classifier
+2026-07-08 06:55:26 | INFO | src.audit.workflow | workflow.py:171 | Workflow node completed: baseline_model
+2026-07-08 06:55:26 | INFO | src.audit.workflow | workflow.py:179 | Workflow node started: mlflow
+2026-07-08 06:55:26 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:48 | Starting MLflow tracking
+2026-07-08 06:55:27 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:86 | Logging MLflow run for model: Logistic Regression
+2026-07-08 06:55:27 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:86 | Logging MLflow run for model: Random Forest Classifier
+2026-07-08 06:55:42 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:161 | Best model logged to MLflow: runs:/499c1b2042cd45858737f4a2ecca91b8/baseline_model
+2026-07-08 06:55:42 | INFO | src.audit.mlflow_tracker | mlflow_tracker.py:182 | MLflow tracking completed successfully
+2026-07-08 06:55:42 | INFO | src.audit.workflow | workflow.py:185 | Workflow node completed: mlflow
+2026-07-08 06:55:42 | INFO | src.audit.workflow | workflow.py:193 | Workflow node started: audit_report
+2026-07-08 06:55:42 | INFO | src.audit.llm_report | llm_report.py:213 | Generating LLM audit report using Groq model: llama-3.3-70b-versatile
+2026-07-08 06:55:45 | INFO | src.audit.llm_report | llm_report.py:248 | Groq LLM audit report generated successfully
+2026-07-08 06:55:45 | INFO | src.audit.workflow | workflow.py:205 | Workflow node completed: audit_report
+2026-07-08 06:55:45 | INFO | src.audit.workflow | workflow.py:268 | Agentic ML audit workflow completed successfully

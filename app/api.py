@@ -1,9 +1,11 @@
 from pathlib import Path
 import shutil
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
+
 from src.audit.workflow import run_audit_workflow
 from src.utils.config import get_config_value
 from src.utils.exceptions import AuditCopilotException
@@ -22,6 +24,35 @@ app = FastAPI(
 
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _as_bool(value: Any) -> bool:
+    """
+    Convert config values safely to boolean.
+    """
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.lower().strip() in {"true", "1", "yes", "y"}
+
+    return bool(value)
+
+
+def _get_file_size_mb(file_path: Path) -> float:
+    """
+    Return file size in megabytes.
+    """
+    return file_path.stat().st_size / (1024 * 1024)
+
+
+def _remove_model_objects(audit_result: dict[str, Any]) -> dict[str, Any]:
+    """
+    Remove non-serializable sklearn model objects from API response.
+    """
+    baseline_results = audit_result.get("baseline_results", {}).copy()
+    baseline_results.pop("trained_model_objects", None)
+    return baseline_results
 
 
 @app.get("/")
@@ -50,9 +81,12 @@ def health_check() -> dict[str, str]:
 async def run_audit(
     file: UploadFile = File(...),
     target_column: str = Form(...),
-) -> dict:
+) -> dict[str, Any]:
     """
     Upload a CSV dataset and run the full ML audit workflow.
+
+    The ML workflow is synchronous and CPU-heavy, so it is executed
+    in a threadpool to avoid blocking the FastAPI event loop.
     """
     file_path: Path | None = None
 
@@ -60,9 +94,6 @@ async def run_audit(
         logger.info("Received audit request")
 
         max_upload_mb = float(get_config_value("api.max_upload_mb", 25))
-        cleanup_uploaded_files = bool(
-            get_config_value("api.cleanup_uploaded_files", True)
-        )
 
         if not file.filename:
             raise HTTPException(
@@ -76,7 +107,9 @@ async def run_audit(
                 detail="Only CSV files are supported currently.",
             )
 
-        if not target_column or not target_column.strip():
+        clean_target_column = target_column.strip()
+
+        if not clean_target_column:
             raise HTTPException(
                 status_code=400,
                 detail="Target column is required.",
@@ -89,10 +122,9 @@ async def run_audit(
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        file_size_mb = _get_file_size_mb(file_path)
 
         if file_size_mb > max_upload_mb:
-            file_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=413,
                 detail=f"File too large. Maximum allowed size is {max_upload_mb} MB.",
@@ -101,17 +133,16 @@ async def run_audit(
         logger.info(f"Uploaded file saved at: {file_path}")
 
         audit_result = await run_in_threadpool(
-    run_audit_workflow,
-    dataset_path=str(file_path),
-    target_column=target_column.strip(),
-)
+            run_audit_workflow,
+            dataset_path=str(file_path),
+            target_column=clean_target_column,
+        )
 
-        baseline_results = audit_result.get("baseline_results", {}).copy()
-        baseline_results.pop("trained_model_objects", None)
+        baseline_results = _remove_model_objects(audit_result)
 
         response = {
             "message": "Audit completed successfully.",
-            "target_column": target_column.strip(),
+            "target_column": clean_target_column,
             "problem_type": audit_result.get("problem_type"),
             "profile": audit_result.get("profile"),
             "data_quality": audit_result.get("data_quality"),
@@ -134,7 +165,10 @@ async def run_audit(
 
     except AuditCopilotException as error:
         logger.error(f"Audit failed: {error}")
-        raise HTTPException(status_code=500, detail=str(error)) from error
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
 
     except Exception as error:
         logger.error(f"Unexpected API error: {error}")
@@ -144,9 +178,10 @@ async def run_audit(
         ) from error
 
     finally:
-        cleanup_uploaded_files = bool(
+        should_cleanup = _as_bool(
             get_config_value("api.cleanup_uploaded_files", True)
         )
 
-        if cleanup_uploaded_files and file_path and file_path.exists():
+        if should_cleanup and file_path and file_path.exists():
             file_path.unlink(missing_ok=True)
+            logger.info(f"Cleaned uploaded file: {file_path}")

@@ -1,16 +1,32 @@
 [project]
 name = "agentic-ml-audit-copilot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agentic ML Audit Copilot: audits tabular datasets for ML risks before model training."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=1.2.8",
-    "mlflow>=1.27.0",
-    "pandas>=3.0.3",
+    "mlflow>=2.19.0,<3",
+    # NOTE: pandas is pinned below 3.0 on purpose. As of now, no stable
+    # (non pre-release) version of mlflow supports pandas 3.x yet — every
+    # released mlflow version requires pandas<3. Using pandas>=3.0.3 here
+    # made the dependency set unsolvable. Once mlflow ships a stable
+    # release with pandas 3 support, this pin can be relaxed again.
+    "pandas>=2.1.0,<3.0.0",
     "protobuf<5",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.9.0",
     "setuptools>=83.0.0",
     "streamlit>=1.59.0",
+    "groq>=0.11.0",
+    "python-dotenv>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
 ]

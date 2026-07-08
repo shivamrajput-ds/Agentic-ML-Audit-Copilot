@@ -55,7 +55,15 @@ def extract_report_context(audit_results: Dict[str, Any]) -> Dict[str, Any]:
                 "datetime_columns": profile.get("datetime_columns", []),
                 "duplicate_rows": profile.get("duplicate_rows", "N/A"),
                 "target_summary": profile.get("target_summary", {}),
-                "target_distribution": profile.get("target_distribution", {}),
+                # BUG FIX: profiler.py never produces a top-level
+                # "target_distribution" key — the real data lives at
+                # profile["target_summary"]["distribution"]. Reading the
+                # wrong key meant this was always an empty dict, so the
+                # LLM report and fallback report silently lost the actual
+                # class/value distribution of the target column.
+                "target_distribution": profile.get("target_summary", {}).get(
+                    "distribution", {}
+                ),
             },
             "data_quality": {
                 "missing_values": data_quality.get("missing_values", {}),
@@ -147,6 +155,10 @@ CRITICAL RULES:
 13. Explain why each major finding matters for ML training.
 14. Keep the report interview-friendly and practical.
 15. Avoid generic phrases like "As an AI", "In conclusion", or "It is important to note".
+16. Write the entire report in plain English only — regardless of any
+    language used inside the structured audit results (e.g. column
+    names, values). Do not switch to Hindi, Hinglish, or any other
+    language at any point.
 
 Writing style:
 - Professional but clear.
@@ -214,7 +226,8 @@ def generate_report_with_groq(report_context: Dict[str, Any]) -> Optional[str]:
                         "Never invent numbers. "
                         "Never estimate values. "
                         "Never calculate metrics. "
-                        "Never contradict the provided audit context."
+                        "Never contradict the provided audit context. "
+                        "Always write in plain English only."
                     ),
                 },
                 {
@@ -528,7 +541,8 @@ Rules:
 - Never train or recommend a model not present in the audit.
 - Never contradict the audit context.
 - If the answer is unavailable in the audit context, clearly say so.
-- Reply in simple Hinglish.
+- Always reply in plain English, regardless of what language the
+  question was asked in.
 - Keep the answer concise and practical.
 - Explain ML concepts in beginner-friendly language.
 
@@ -551,8 +565,9 @@ Completed Audit Results:
                     "content": (
                         "You are an ML Audit Copilot. Answer only from the "
                         "completed audit context. Never invent numbers. "
-                        "Never perform new ML computations. Reply in simple "
-                        "Hinglish."
+                        "Never perform new ML computations. Always reply "
+                        "in plain English, regardless of what language the "
+                        "user's question is written in."
                     ),
                 },
                 {

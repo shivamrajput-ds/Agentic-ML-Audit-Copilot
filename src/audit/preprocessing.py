@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from src.utils.exceptions import AuditCopilotException, PreprocessingError
+from src.utils.exceptions import PreprocessingError
 from src.utils.logger import get_logger
 
 
@@ -45,6 +45,9 @@ def build_preprocessing_pipeline(
     Categorical features:
     - most-frequent imputation
     - one-hot encoding
+
+    Datetime features:
+    - currently detected and dropped with a warning
     """
     try:
         logger.info("Starting preprocessing pipeline creation")
@@ -52,9 +55,10 @@ def build_preprocessing_pipeline(
         validate_preprocessing_inputs(df, target_column)
 
         features = df.drop(columns=[target_column])
+
         datetime_columns = features.select_dtypes(
-    include=["datetime64", "datetimetz"]
-).columns.tolist()
+            include=["datetime64", "datetimetz"]
+        ).columns.tolist()
 
         numeric_columns = features.select_dtypes(
             include=["number"]
@@ -104,23 +108,26 @@ def build_preprocessing_pipeline(
             remainder="drop",
         )
 
-        result = {
-    "preprocessor": preprocessor,
-    "numeric_columns": numeric_columns,
-    "categorical_columns": categorical_columns,
-    "datetime_columns_dropped": datetime_columns,
-    "total_features_before_encoding": (
-        len(numeric_columns) + len(categorical_columns)
-    ),
-    "warning": (
-        "Datetime columns are currently dropped by preprocessing. "
-        "Future version can extract year/month/day features."
-        if datetime_columns
-        else None
-    ),
-    "message": "Preprocessing pipeline created successfully.",
-}
+        warning = None
 
+        if datetime_columns:
+            warning = (
+                "Datetime columns are currently dropped by preprocessing. "
+                "Future version can extract year/month/day features."
+            )
+            logger.warning(warning)
+
+        result = {
+            "preprocessor": preprocessor,
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
+            "datetime_columns_dropped": datetime_columns,
+            "total_features_before_encoding": (
+                len(numeric_columns) + len(categorical_columns)
+            ),
+            "warning": warning,
+            "message": "Preprocessing pipeline created successfully.",
+        }
 
         logger.info("Preprocessing pipeline created successfully")
         return result
@@ -251,9 +258,11 @@ if __name__ == "__main__":
         {
             "numeric_columns": pipeline_info["numeric_columns"],
             "categorical_columns": pipeline_info["categorical_columns"],
+            "datetime_columns_dropped": pipeline_info["datetime_columns_dropped"],
             "total_features_before_encoding": pipeline_info[
                 "total_features_before_encoding"
             ],
+            "warning": pipeline_info["warning"],
             "message": pipeline_info["message"],
         }
     )

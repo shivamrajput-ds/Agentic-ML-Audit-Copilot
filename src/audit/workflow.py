@@ -1,9 +1,8 @@
 from typing import Any, TypedDict
-import pandas as pd
 
+import pandas as pd
 from langgraph.graph import END, StateGraph
 
-from src.audit.profiler import load_dataset, profile_dataset
 from src.audit.baseline_models import train_baseline_models
 from src.audit.class_imbalance import detect_class_imbalance
 from src.audit.data_quality import run_data_quality_audit
@@ -12,7 +11,7 @@ from src.audit.llm_report import build_audit_report, save_audit_report
 from src.audit.metric_recommender import recommend_metrics
 from src.audit.mlflow_tracker import track_baseline_experiment
 from src.audit.problem_type import detect_problem_type
-from src.audit.profiler import profile_dataset
+from src.audit.profiler import load_dataset, profile_dataset
 from src.utils.exceptions import AgentWorkflowError
 from src.utils.logger import get_logger
 
@@ -62,7 +61,7 @@ def load_dataset_node(state: AuditState) -> AuditState:
             "load_dataset node failed",
             error_detail=str(error),
         ) from error
-        
+
 
 def profile_dataset_node(state: AuditState) -> AuditState:
     """

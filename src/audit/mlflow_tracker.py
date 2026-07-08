@@ -1,8 +1,10 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
+import pandas as pd
 import mlflow
 import mlflow.sklearn
+from mlflow.models import infer_signature
 
 from src.utils.config import get_config_value
 from src.utils.exceptions import MLflowTrackingError
@@ -28,9 +30,19 @@ def _as_bool(value: Any) -> bool:
 def track_baseline_experiment(
     baseline_results: dict[str, Any],
     experiment_name: str | None = None,
+    sample_input: Optional[pd.DataFrame] = None,
 ) -> dict[str, Any]:
     """
     Track baseline model metrics, parameters, and best model pipeline in MLflow.
+
+    Args:
+        baseline_results: Output of train_baseline_models().
+        experiment_name: Optional override for the MLflow experiment name.
+        sample_input: A small slice of the *raw* feature dataframe (e.g.
+            X_test.head(3)) used only to log a model signature and input
+            example in MLflow. This is purely metadata for the MLflow UI —
+            it does not affect training or predictions. If not provided,
+            the model is still logged, just without a signature.
     """
     try:
         logger.info("Starting MLflow tracking")
@@ -114,9 +126,36 @@ def track_baseline_experiment(
                     model_object = trained_model_objects.get(model_name)
 
                     if model_object is not None:
+                        signature = None
+                        input_example = None
+
+                        # Build a model signature/input example when the
+                        # caller provides a sample of the raw feature
+                        # dataframe. This is optional metadata: without
+                        # it, the model still logs fine, but MLflow's UI
+                        # and mlflow.models.predict() cannot validate
+                        # input shape/types for you.
+                        if sample_input is not None and not sample_input.empty:
+                            try:
+                                predictions_sample = model_object.predict(
+                                    sample_input
+                                )
+                                signature = infer_signature(
+                                    sample_input,
+                                    predictions_sample,
+                                )
+                                input_example = sample_input
+                            except Exception as signature_error:
+                                logger.warning(
+                                    "Could not infer model signature, "
+                                    f"logging without one: {signature_error}"
+                                )
+
                         mlflow.sklearn.log_model(
                             sk_model=model_object,
                             artifact_path=artifact_path,
+                            signature=signature,
+                            input_example=input_example,
                         )
                         logged_model_uri = f"runs:/{run.info.run_id}/{artifact_path}"
                         logger.info(
