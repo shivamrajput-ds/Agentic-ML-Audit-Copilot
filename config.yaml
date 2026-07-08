@@ -1,0 +1,48 @@
+project:
+  name: "Agentic ML Audit Copilot"
+  version: "0.1.0"
+
+logging:
+  log_level: "INFO"
+  log_file: "logs/app.log"
+  max_bytes: 5000000
+  backup_count: 3
+
+audit:
+  high_missing_threshold: 50
+  high_cardinality_threshold: 50
+  id_unique_percent_threshold: 95
+
+imbalance:
+  low_ratio_threshold: 1.5
+  moderate_ratio_threshold: 3
+  high_ratio_threshold: 10
+
+leakage:
+  high_correlation_threshold: 0.90
+  classification_proxy_threshold: 0.75
+
+modeling:
+  test_size: 0.2
+  random_state: 42
+  cv_folds: 5
+  enable_cross_validation: false
+
+mlflow:
+  experiment_name: "agentic_ml_audit_baselines"
+  log_models: true
+  artifact_path: "baseline_model"
+
+api:
+  max_upload_mb: 25
+  cleanup_uploaded_files: true
+
+streamlit:
+  max_upload_mb: 25
+  cleanup_uploaded_files: false
+
+llm:
+  provider: "groq"
+  model: "llama-3.3-70b-versatile"
+  temperature: 0.2
+  max_tokens: 2000

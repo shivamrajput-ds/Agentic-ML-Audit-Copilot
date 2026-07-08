@@ -1,0 +1,16 @@
+[project]
+name = "agentic-ml-audit-copilot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1.2.8",
+    "mlflow>=1.27.0",
+    "pandas>=3.0.3",
+    "protobuf<5",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.0",
+    "setuptools>=83.0.0",
+    "streamlit>=1.59.0",
+]
