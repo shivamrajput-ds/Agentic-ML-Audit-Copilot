@@ -8,9 +8,22 @@ wheels/
 
 # Virtual environments
 .venv
+venv/
+env/
 
 .env
+.env.*
 
 data/uploads/
 
 mlruns/
+
+# Runtime-generated artifacts — these change on every audit run and
+# should never be committed. Previously missing from .gitignore, so
+# logs/app.log, reports/audit_report.md, and artifacts/mlflow_temp/*
+# were all tracked in git and kept accumulating stale run data.
+logs/
+reports/*.md
+!reports/.gitkeep
+artifacts/
+mlflow.db
