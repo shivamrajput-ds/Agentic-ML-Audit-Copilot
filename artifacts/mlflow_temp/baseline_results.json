@@ -1,0 +1,93 @@
+{
+  "problem_type": "binary_classification",
+  "target_column": "Churn",
+  "models_trained": [
+    "Logistic Regression",
+    "Random Forest Classifier"
+  ],
+  "results": {
+    "Logistic Regression": {
+      "accuracy": 0.7601,
+      "precision_weighted": 0.7918,
+      "recall_weighted": 0.7601,
+      "f1_score": 0.7697,
+      "f1_macro": 0.7201,
+      "roc_auc": 0.8401
+    },
+    "Random Forest Classifier": {
+      "accuracy": 0.704,
+      "precision_weighted": 0.7907,
+      "recall_weighted": 0.704,
+      "f1_score": 0.7212,
+      "f1_macro": 0.6803,
+      "roc_auc": 0.8107
+    }
+  },
+  "best_model": {
+    "model_name": "Logistic Regression",
+    "selection_metric": "f1_score",
+    "score": 0.7697,
+    "higher_is_better": true
+  },
+  "preprocessing_summary": {
+    "numeric_columns": [
+      "SeniorCitizen",
+      "tenure",
+      "MonthlyCharges"
+    ],
+    "categorical_columns": [
+      "customerID",
+      "gender",
+      "Partner",
+      "Dependents",
+      "PhoneService",
+      "MultipleLines",
+      "InternetService",
+      "OnlineSecurity",
+      "OnlineBackup",
+      "DeviceProtection",
+      "TechSupport",
+      "StreamingTV",
+      "StreamingMovies",
+      "Contract",
+      "PaperlessBilling",
+      "PaymentMethod",
+      "TotalCharges"
+    ],
+    "datetime_columns": [],
+    "unsupported_columns_dropped": [],
+    "total_features_before_encoding": 20
+  },
+  "evaluation_details": {
+    "test_size": 0.2,
+    "random_state": 42,
+    "class_labels": [
+      "No",
+      "Yes"
+    ],
+    "confusion_matrices": {
+      "Logistic Regression": [
+        [
+          802,
+          233
+        ],
+        [
+          105,
+          269
+        ]
+      ],
+      "Random Forest Classifier": [
+        [
+          688,
+          347
+        ],
+        [
+          70,
+          304
+        ]
+      ]
+    }
+  },
+  "message": "Baseline model training completed successfully.",
+  "note": "These are baseline sanity-check models, not final optimized models."
+}

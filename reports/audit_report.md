@@ -1,38 +1,39 @@
 # Agentic ML Audit Report
 
 ## Executive Summary
-This report provides an overview of the audit results for the given dataset. The dataset contains 1599 rows and 12 columns, with a target column named "quality". The problem type is multiclass classification. The audit results highlight several key findings, including **duplicate rows**, **severe class imbalance**, and **recommended metrics** for evaluation.
+The audit report provides an overview of the dataset and identifies potential risks and areas for improvement. The dataset consists of 7043 rows and 21 columns, with a binary classification problem type. The target column is "Churn", which has a moderate class imbalance. The audit results highlight the need for careful encoding of high cardinality columns and the potential risk of using ID columns for modeling.
 
 ## 1. Dataset Overview
-The dataset consists of 1599 rows and 12 columns, with 11 feature columns and 1 target column. The target column is "quality", which has 6 unique values. The dataset contains **240 duplicate rows**, which is approximately 15.01% of the total rows.
+The dataset has 7043 rows and 21 columns, with 20 feature columns and 1 target column. The dataset has no duplicate rows and no missing values in the target column. The target column "Churn" has a distribution of 73.46% "No" and 26.54% "Yes".
 
 ## 2. Problem Type
-The problem type is **multiclass classification**, where the goal is to predict one of the 6 unique values in the "quality" column.
+The problem type is binary classification, which means the model will predict one of two classes: "No" or "Yes".
 
 ## 3. Data Quality Audit
-The data quality audit reveals that the dataset contains **duplicate rows**, which may affect the model's performance. There are no missing values, high missing columns, constant columns, or high cardinality columns. However, the presence of duplicate rows is a concern and may require further investigation.
+The data quality audit reveals that there are no missing values in the dataset. However, there are high cardinality columns, such as "customerID" and "TotalCharges", which may require careful encoding. The audit also identifies "customerID" as a possible ID column, which should usually not be used for modeling.
 
 ## 4. Possible Leakage Risk
-The audit results do not indicate any **possible leakage risks**. However, it is essential to note that the absence of leakage risks in the audit results does not guarantee that there are no leakage risks present.
+The audit results show that there are **no confirmed leakage risks**. However, it is essential to review the columns to determine if they would be available at prediction time to identify **possible leakage risks**.
 
 ## 5. Metric Recommendation
-The recommended metrics for evaluation are **Accuracy**, **Macro Precision**, **Macro Recall**, **Macro F1 Score**, and **Weighted F1 Score**. The primary metric is **Weighted F1 Score**, which is suitable for multiclass classification problems.
+The recommended metrics for this binary classification problem are Accuracy, Precision, Recall, F1 Score, ROC-AUC, PR-AUC, and Confusion Matrix. The primary metric is F1 Score, which balances precision and recall.
 
 ## 6. Class Imbalance Analysis
-The class imbalance analysis reveals that there is a **severe class imbalance** in the dataset. The majority class is "5" with 681 instances, while the minority class is "3" with only 10 instances. The imbalance ratio is 68.1, which indicates a significant imbalance. This imbalance may affect the model's performance and require special handling.
+The class imbalance analysis reveals a **moderate class imbalance**, with a ratio of 2.77 between the majority class "No" and the minority class "Yes". This imbalance may lead to misleading accuracy metrics, and it is recommended to use stratified train-test split and compare macro and weighted metrics.
 
 ## 7. Baseline Model Benchmark
-The baseline model benchmarking results show that two models were trained: **Logistic Regression** and **Random Forest Classifier**. The best model is **Random Forest Classifier**, which achieved an F1 score of 0.6284.
+The baseline model benchmark includes Logistic Regression and Random Forest Classifier. The best performing model is Logistic Regression, with an F1 Score of 0.7697.
 
 ## 8. MLflow Tracking
-The MLflow tracking results show that the experiment was successfully logged, and the best model is **Random Forest Classifier** with an F1 score of 0.6284.
+The MLflow tracking results show that the experiment was successfully logged, and the best model is Logistic Regression, with an F1 Score of 0.7697.
 
 ## 9. Final Recommendations
 Based on the audit results, the following recommendations are made:
-* Handle the **duplicate rows** to prevent overfitting
-* Address the **severe class imbalance** using techniques such as oversampling, undersampling, or class weighting
-* Use the recommended metrics, particularly **Weighted F1 Score**, for evaluation
-* Consider using techniques such as data augmentation or transfer learning to improve model performance
+* Carefully encode high cardinality columns
+* Avoid using ID columns for modeling
+* Use stratified train-test split for classification
+* Compare macro and weighted metrics
+* Consider class_weight='balanced' for supported models
 
 ## 10. Important Caveats
-It is essential to note that the audit results are based on a deterministic Python code and do not guarantee the absence of leakage risks or other issues. Further investigation and analysis are necessary to ensure the quality and reliability of the dataset and the models trained on it. Additionally, the baseline models are sanity-check models and not final optimized models.
+The audit results are based on the provided dataset and may not be representative of the entire population. It is essential to review the results and consider the potential risks and limitations before proceeding with model training and deployment. **The model is not production-ready**, and further optimization and testing are required.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import pandas as pd
 from langgraph.graph import END, StateGraph
@@ -22,11 +22,25 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class AuditState(TypedDict, total=False):
-    df: pd.DataFrame
+class _AuditStateRequired(TypedDict):
+    """
+    Keys that are always present the moment run_audit_workflow() builds
+    the initial state — before the graph even starts executing. Splitting
+    these out of the `total=False` block below silences a batch of
+    Pylance "reportTypedDictNotRequiredAccess" warnings for keys that are
+    genuinely guaranteed to exist (dataset_path, target_column), without
+    dishonestly marking the *progressively populated* keys (df, profile,
+    baseline_results, etc.) as required when they are not yet set at the
+    start of the run.
+    """
+
     dataset_path: str
     target_column: str
     report_output_path: str
+
+
+class AuditState(_AuditStateRequired, total=False):
+    df: pd.DataFrame
 
     profile: dict[str, Any]
     problem_type_result: dict[str, Any]
@@ -66,7 +80,7 @@ def profile_dataset_node(state: AuditState) -> AuditState:
 
 
 def problem_type_node(state: AuditState) -> AuditState:
-    logger.info("Workflow node started: problem_type")
+    logger.info("Workflow node started: problem_type_detection")
 
     problem_result = detect_problem_type(
         df=state["df"],
@@ -76,7 +90,7 @@ def problem_type_node(state: AuditState) -> AuditState:
     state["problem_type_result"] = problem_result
     state["problem_type"] = problem_result["problem_type"]
 
-    logger.info("Workflow node completed: problem_type")
+    logger.info("Workflow node completed: problem_type_detection")
     return state
 
 
@@ -188,7 +202,10 @@ def mlflow_node(state: AuditState) -> AuditState:
 def audit_report_node(state: AuditState) -> AuditState:
     logger.info("Workflow node started: audit_report")
 
-    report = build_audit_report(state)
+    # cast() here is a no-op at runtime — AuditState IS a dict at runtime.
+    # It only tells Pylance that passing our TypedDict where a generic
+    # dict[str, Any] is expected is intentional, not a type error.
+    report = build_audit_report(cast(dict[str, Any], state))
 
     output_path = state.get("report_output_path", "reports/audit_report.md")
 
@@ -209,27 +226,38 @@ def build_audit_workflow():
     
     workflow.add_node("load_dataset", load_dataset_node)
     workflow.add_node("profile_dataset", profile_dataset_node)
-    workflow.add_node("problem_type", problem_type_node)
-    workflow.add_node("data_quality", data_quality_node)
-    workflow.add_node("leakage", leakage_node)
-    workflow.add_node("class_imbalance", class_imbalance_node)
-    workflow.add_node("metric_recommendation", metric_recommendation_node)
+    # NOTE ON NODE NAMING: LangGraph's StateGraph forbids a node name
+    # that is identical to any key already declared in the state
+    # TypedDict (AuditState). Several node names below originally matched
+    # their corresponding state keys exactly ("data_quality", "leakage",
+    # "class_imbalance", "metric_recommendation", "audit_report"), which
+    # made add_node() raise:
+    #   ValueError: '<name>' is already being used as a state key
+    # ...on every single run, before the graph could even execute. Every
+    # colliding node name below has been suffixed (_detection/_check/etc.)
+    # while the state keys themselves (which llm_report.py, api.py, and
+    # streamlit_app.py all rely on) are left completely unchanged.
+    workflow.add_node("problem_type_detection", problem_type_node)
+    workflow.add_node("data_quality_check", data_quality_node)
+    workflow.add_node("leakage_check", leakage_node)
+    workflow.add_node("class_imbalance_check", class_imbalance_node)
+    workflow.add_node("metric_recommendation_step", metric_recommendation_node)
     workflow.add_node("baseline_model", baseline_model_node)
     workflow.add_node("mlflow", mlflow_node)
-    workflow.add_node("audit_report", audit_report_node)
+    workflow.add_node("audit_report_generation", audit_report_node)
 
     workflow.set_entry_point("load_dataset")
 
     workflow.add_edge("load_dataset", "profile_dataset")
-    workflow.add_edge("profile_dataset", "problem_type")
-    workflow.add_edge("problem_type", "data_quality")
-    workflow.add_edge("data_quality", "leakage")
-    workflow.add_edge("leakage", "class_imbalance")
-    workflow.add_edge("class_imbalance", "metric_recommendation")
-    workflow.add_edge("metric_recommendation", "baseline_model")
+    workflow.add_edge("profile_dataset", "problem_type_detection")
+    workflow.add_edge("problem_type_detection", "data_quality_check")
+    workflow.add_edge("data_quality_check", "leakage_check")
+    workflow.add_edge("leakage_check", "class_imbalance_check")
+    workflow.add_edge("class_imbalance_check", "metric_recommendation_step")
+    workflow.add_edge("metric_recommendation_step", "baseline_model")
     workflow.add_edge("baseline_model", "mlflow")
-    workflow.add_edge("mlflow", "audit_report")
-    workflow.add_edge("audit_report", END)
+    workflow.add_edge("mlflow", "audit_report_generation")
+    workflow.add_edge("audit_report_generation", END)
 
     return workflow.compile()
 
@@ -258,7 +286,12 @@ def run_audit_workflow(
             "warnings": [],
         }
 
-        final_state = app.invoke(initial_state)
+        # LangGraph's app.invoke() returns a plain dict at the type level
+        # even though at runtime it's exactly our AuditState shape (it's
+        # literally the same dict we built and mutated node by node).
+        # cast() here just tells Pylance to trust the declared return
+        # type instead of flagging a mismatch.
+        final_state = cast(AuditState, app.invoke(initial_state))
 
         logger.info("Agentic ML audit workflow completed successfully")
         return final_state
@@ -278,7 +311,14 @@ def get_printable_workflow_output(state: AuditState) -> dict[str, Any]:
     """
     Remove dataframe and trained model objects for clean CLI/API output.
     """
-    output = dict(state)
+    # NOTE: explicitly annotating `output` as dict[str, Any] (instead of
+    # letting Pylance infer the type from `dict(state)` where state is a
+    # TypedDict) avoids a confusing false-positive where Pylance picks
+    # the wrong dict()/pop() overload and reports type errors like
+    # "Iterable[list[bytes]]" or "key of type bytes" — neither of which
+    # has anything to do with this code. This is a static-analysis
+    # artifact only; it did not affect runtime behavior.
+    output: dict[str, Any] = dict(state)
 
     output.pop("df", None)
 

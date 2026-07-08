@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import mlflow
-import mlflow.sklearn
+import mlflow.sklearn  # type: ignore[reportPrivateImportUsage]  # mlflow's type stubs don't declare this submodule in __all__; it's a real, working module at runtime.
 import pandas as pd
 from mlflow.models import infer_signature
 
@@ -211,30 +211,38 @@ def track_baseline_experiment(
                         model_object = trained_model_objects.get(model_name)
 
                         if model_object is not None:
-                            signature = None
-                            input_example = None
+                            log_model_kwargs: dict[str, Any] = {
+                                "sk_model": model_object,
+                                "artifact_path": artifact_path,
+                            }
 
                             if sample_input is not None and not sample_input.empty:
                                 try:
                                     input_example = sample_input.head(5)
                                     predictions_sample = model_object.predict(input_example)
 
-                                    signature = infer_signature(
+                                    log_model_kwargs["signature"] = infer_signature(
                                         input_example,
                                         predictions_sample,
                                     )
+                                    log_model_kwargs["input_example"] = input_example
                                 except Exception as signature_error:
                                     logger.warning(
                                         "Could not infer model signature. "
                                         f"Logging model without signature: {signature_error}"
                                     )
 
-                            mlflow.sklearn.log_model(
-                                sk_model=model_object,
-                                artifact_path=artifact_path,
-                                signature=signature,
-                                input_example=input_example,
-                            )
+                            # NOTE: signature/input_example are only added
+                            # to log_model_kwargs above when successfully
+                            # computed. mlflow's type stubs declare both
+                            # parameters as non-Optional, so passing
+                            # signature=None/input_example=None explicitly
+                            # (the previous approach) tripped Pylance even
+                            # though mlflow accepts None fine at runtime.
+                            # Omitting the keys entirely when unavailable
+                            # satisfies both the stub and the real
+                            # behavior.
+                            mlflow.sklearn.log_model(**log_model_kwargs)
 
                             logged_model_uri = (
                                 f"runs:/{child_run.info.run_id}/{artifact_path}"
