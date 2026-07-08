@@ -6,7 +6,7 @@
 # different LangGraph APIs. Verified: langgraph==1.2.8 passes the full
 # pytest suite (34/34) with no code changes needed.
 pandas==2.2.3
-numpy==1.26.4
+numpy==2.4.6
 scikit-learn==1.5.2
 
 langgraph==1.2.8
@@ -26,3 +26,4 @@ streamlit==1.41.1
 
 joblib==1.4.2
 pytest==8.3.4
+shap==0.52.0

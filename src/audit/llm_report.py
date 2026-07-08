@@ -103,7 +103,7 @@ def _get_llm_runtime_config(default_max_tokens: int) -> Dict[str, Any]:
 
     return {
         "api_key": llm_config.get("api_key"),
-        "model": llm_config.get("model", "llama-3.3-70b-versatile"),
+        "model": llm_config.get("model", "openai/gpt-oss-120b"),
         "temperature": float(llm_config.get("temperature", 0.2)),
         "max_tokens": int(llm_config.get("max_tokens", default_max_tokens)),
         "timeout": int(llm_config.get("timeout", 120)),
@@ -178,7 +178,17 @@ def _call_groq_chat(
             return None
 
     except Exception as error:
-        logger.warning("Groq call failed. Using fallback if available. Error: %s", error)
+        # Logging the exception type alongside the message makes failure
+        # modes distinguishable in the logs — e.g. a groq.BadRequestError
+        # with "model_decommissioned" (wrong/deprecated model name) looks
+        # completely different from a groq.AuthenticationError (bad API
+        # key) or a network timeout, even though the UI shows the same
+        # generic fallback message for all three.
+        logger.warning(
+            "Groq call failed (%s). Using fallback if available. Error: %s",
+            type(error).__name__,
+            error,
+        )
         return None
 
 

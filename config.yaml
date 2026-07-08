@@ -83,7 +83,7 @@ modeling:
   test_size: 0.2
   random_state: 42
   cv_folds: 5
-  enable_cross_validation: false
+  enable_cross_validation: true
   max_training_time_seconds: 300
   random_forest_estimators: 200
   random_forest_min_samples_leaf: 2
@@ -125,7 +125,7 @@ reports:
 
 llm:
   provider: "groq"
-  model: "llama-3.3-70b-versatile"
+  model: "openai/gpt-oss-120b"
   temperature: 0.2
   max_tokens: 2000
   timeout: 120
