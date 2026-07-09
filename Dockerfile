@@ -11,6 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ENV PYTHONPATH=/app
+
 # System packages needed by pandas, sklearn, mlflow, shap, and health checks.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
