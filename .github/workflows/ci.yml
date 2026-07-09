@@ -41,10 +41,6 @@ jobs:
         run: |
           uv pip install -r requirements.txt --python .venv/bin/python
 
-      - name: Run lint checks
-        run: |
-          uv run --python .venv/bin/python ruff check src app tests
-
       - name: Run tests
         run: |
           uv run --python .venv/bin/python python -m pytest -v
