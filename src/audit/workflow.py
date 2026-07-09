@@ -93,6 +93,20 @@ def get_optional_config(path: str, default: bool) -> bool:
     return as_bool(get_config_value(path, default))
 
 
+def get_int_config(path: str, default: int) -> int:
+    try:
+        return int(get_config_value(path, default))
+    except Exception:
+        return default
+
+
+def get_float_config(path: str, default: float) -> float:
+    try:
+        return float(get_config_value(path, default))
+    except Exception:
+        return default
+
+
 def append_warning(state: AuditState, warning: str) -> AuditState:
     warnings = list(state.get("warnings", []))
     warnings.append(warning)
@@ -138,26 +152,56 @@ def append_optional_failure(
 
 def timed_node(name: str, func: NodeFn) -> NodeFn:
     """
-    Wrap a LangGraph node with timing and logging.
+    Wrap a LangGraph node with timing, retry, and logging.
+
+    Heavy ML nodes can fail because of transient IO, MLflow, or LLM issues.
+    Optional nodes handle their own fallback. Required nodes use this small retry
+    guard before the workflow is marked failed.
     """
+
     def wrapper(state: AuditState) -> AuditState:
         start = now_seconds()
+        max_retries = max(0, get_int_config("workflow.max_retries", 0))
+        retry_sleep = max(0.0, get_float_config("workflow.retry_sleep_seconds", 0.5))
+        attempts = max_retries + 1
+        last_error: Exception | None = None
+
         logger.info("Workflow node started: %s", name)
 
-        try:
-            updated_state = func(state)
-        except Exception as error:
-            append_error(state, name, error, fatal=True)
-            logger.exception("Workflow node failed: %s", name)
-            raise
+        for attempt in range(1, attempts + 1):
+            try:
+                updated_state = func(state)
+                elapsed = round(now_seconds() - start, 4)
+                timings = dict(updated_state.get("node_timings", {}))
+                timings[name] = elapsed
+                updated_state["node_timings"] = timings
 
-        elapsed = round(now_seconds() - start, 4)
-        timings = dict(updated_state.get("node_timings", {}))
-        timings[name] = elapsed
-        updated_state["node_timings"] = timings
+                if attempt > 1:
+                    append_warning(
+                        updated_state,
+                        f"Workflow node '{name}' succeeded after {attempt} attempts.",
+                    )
 
-        logger.info("Workflow node completed: %s in %.4fs", name, elapsed)
-        return updated_state
+                logger.info("Workflow node completed: %s in %.4fs", name, elapsed)
+                return updated_state
+
+            except Exception as error:
+                last_error = error
+                logger.warning(
+                    "Workflow node attempt failed: %s attempt=%s/%s error=%s",
+                    name,
+                    attempt,
+                    attempts,
+                    error,
+                )
+
+                if attempt < attempts:
+                    time.sleep(retry_sleep * attempt)
+
+        assert last_error is not None
+        append_error(state, name, last_error, fatal=True)
+        logger.exception("Workflow node failed permanently: %s", name)
+        raise last_error
 
     return wrapper
 
@@ -240,6 +284,15 @@ def imbalance_node(state: AuditState) -> AuditState:
     df = state["df"]
     target_column = state["target_column"]
     problem_type = state["problem_type"]
+
+    if problem_type == "regression":
+        state["class_imbalance"] = {
+            "problem_type": problem_type,
+            "target_column": target_column,
+            "is_applicable": False,
+            "message": "Class imbalance detection is not applicable for regression problems.",
+        }
+        return state
 
     state["class_imbalance"] = detect_class_imbalance(
         df=df,
@@ -413,10 +466,81 @@ def save_report_safely(report: str) -> dict[str, Any]:
         }
 
 
+def validate_required_state(state: AuditState) -> None:
+    """
+    Validate that required workflow outputs exist before final summary.
+    """
+    required_keys = [
+        "profile",
+        "problem_detection",
+        "problem_type",
+        "data_quality",
+        "leakage",
+        "class_imbalance",
+        "metric_recommendation",
+        "baseline_results",
+    ]
+
+    missing = [key for key in required_keys if key not in state]
+
+    if missing:
+        raise AgentWorkflowError(
+            f"Workflow completed with missing required state keys: {missing}"
+        )
+
+
+def collect_stage_status(state: AuditState) -> list[dict[str, Any]]:
+    """
+    Build UI-friendly stage status records.
+    """
+    stage_keys = {
+        "load_dataset": "df",
+        "profile": "profile",
+        "problem_detection": "problem_detection",
+        "data_quality": "data_quality",
+        "leakage": "leakage",
+        "imbalance": "class_imbalance",
+        "metrics": "metric_recommendation",
+        "baseline": "baseline_results",
+        "mlflow": "mlflow_results",
+        "explainability": "explainability",
+        "report": "audit_report",
+        "finalize": "execution_summary",
+    }
+
+    timings = state.get("node_timings", {})
+    optional_failures = {
+        str(item.get("stage"))
+        for item in state.get("optional_failures", [])
+        if isinstance(item, dict)
+    }
+
+    stages: list[dict[str, Any]] = []
+
+    for stage, key in stage_keys.items():
+        if stage in optional_failures:
+            status = "warning"
+        elif key in state:
+            status = "completed"
+        else:
+            status = "skipped"
+
+        stages.append(
+            {
+                "stage": stage,
+                "status": status,
+                "runtime_seconds": timings.get(stage),
+            }
+        )
+
+    return stages
+
+
 def finalization_node(state: AuditState) -> AuditState:
     """
     Add audit score, HITL summary, execution metadata, and cleanup runtime state.
     """
+    validate_required_state(state)
     state["completed_at"] = now_seconds()
     started_at = float(state.get("started_at", state["completed_at"]))
     state["runtime_seconds"] = round(state["completed_at"] - started_at, 4)
@@ -609,6 +733,10 @@ def build_execution_summary(state: AuditState) -> dict[str, Any]:
         "optional_failures_count": len(optional_failures),
         "optional_failures": optional_failures,
         "warnings": state.get("warnings", []),
+        "stage_status": collect_stage_status(state),
+        "completed_stages_count": len([
+            stage for stage in collect_stage_status(state) if stage.get("status") == "completed"
+        ]),
     }
 
 

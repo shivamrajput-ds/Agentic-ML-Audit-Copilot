@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
 
 from src.audit.workflow import run_audit_workflow
 from src.utils.config import get_config_value
@@ -30,16 +32,6 @@ app = FastAPI(
 )
 
 
-# Portfolio/demo default. Restrict this in real production.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_config_value("api.cors_allow_origins", ["*"]),
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
-
-
 def as_bool(value: Any) -> bool:
     """
     Convert config values safely into boolean.
@@ -53,6 +45,85 @@ def as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def normalize_list(value: Any, default: list[str]) -> list[str]:
+    """
+    Normalize config values that should be lists.
+    """
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    if isinstance(value, str) and value.strip():
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    return default
+
+
+def get_cors_origins() -> list[str]:
+    """
+    Read CORS origins from config.
+
+    For portfolio/demo, '*' is acceptable.
+    For production, configure exact frontend domains.
+    """
+    origins = normalize_list(
+        get_config_value("api.cors_allow_origins", ["*"]),
+        default=["*"],
+    )
+    return origins or ["*"]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_request_metadata(request: Request, call_next):
+    """
+    Add request id and process time to every API response.
+    """
+    request_id = str(uuid.uuid4())
+    start_time = time.perf_counter()
+
+    request.state.request_id = request_id
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Unhandled request failure. request_id=%s", request_id)
+        raise
+
+    process_time = round(time.perf_counter() - start_time, 4)
+
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time"] = str(process_time)
+
+    return response
+
+
+@app.exception_handler(AuditCopilotException)
+async def audit_exception_handler(request: Request, error: AuditCopilotException):
+    """
+    Return consistent JSON for project-level exceptions.
+    """
+    request_id = getattr(request.state, "request_id", None)
+    http_error = map_audit_exception_to_http(error)
+
+    return JSONResponse(
+        status_code=http_error.status_code,
+        content={
+            "error": True,
+            "request_id": request_id,
+            "error_type": error.__class__.__name__,
+            "detail": http_error.detail,
+        },
+    )
+
+
 def get_allowed_extensions() -> set[str]:
     """
     Get allowed upload extensions from config.
@@ -62,7 +133,38 @@ def get_allowed_extensions() -> set[str]:
     if not isinstance(raw_extensions, list):
         return {".csv"}
 
-    return {str(ext).lower().strip() for ext in raw_extensions}
+    allowed = {str(ext).lower().strip() for ext in raw_extensions if str(ext).strip()}
+
+    return allowed or {".csv"}
+
+
+def get_allowed_content_types() -> set[str]:
+    """
+    Allowed MIME types for CSV uploads.
+
+    Browser MIME values vary, so this is intentionally permissive for CSV.
+    """
+    raw_types = get_config_value(
+        "api.allowed_content_types",
+        [
+            "text/csv",
+            "application/csv",
+            "application/vnd.ms-excel",
+            "text/plain",
+            "application/octet-stream",
+        ],
+    )
+
+    if not isinstance(raw_types, list):
+        return {
+            "text/csv",
+            "application/csv",
+            "application/vnd.ms-excel",
+            "text/plain",
+            "application/octet-stream",
+        }
+
+    return {str(item).lower().strip() for item in raw_types if str(item).strip()}
 
 
 def get_file_size_mb(file_path: Path) -> float:
@@ -92,12 +194,28 @@ def validate_upload_metadata(file: UploadFile, target_column: str) -> str:
             detail=f"Unsupported file type '{extension}'. Allowed: {allowed}",
         )
 
+    content_type = (file.content_type or "").lower().strip()
+    allowed_types = get_allowed_content_types()
+
+    if content_type and content_type not in allowed_types:
+        logger.warning(
+            "Unexpected upload content type: filename=%s content_type=%s",
+            safe_filename,
+            content_type,
+        )
+
     clean_target_column = target_column.strip()
 
     if not clean_target_column:
         raise HTTPException(
             status_code=400,
             detail="Target column is required.",
+        )
+
+    if len(clean_target_column) > int(get_config_value("api.max_target_column_chars", 200)):
+        raise HTTPException(
+            status_code=400,
+            detail="Target column name is too long.",
         )
 
     return clean_target_column
@@ -133,6 +251,12 @@ def validate_saved_file(file_path: Path) -> None:
             detail="Uploaded file could not be saved.",
         )
 
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Uploaded path is not a valid file.",
+        )
+
     if file_path.stat().st_size == 0:
         raise HTTPException(
             status_code=400,
@@ -151,7 +275,7 @@ def validate_saved_file(file_path: Path) -> None:
 
 def strip_non_serializable_objects(audit_result: dict[str, Any]) -> dict[str, Any]:
     """
-    Remove sklearn pipelines, DataFrames, and other runtime objects from API response.
+    Remove sklearn pipelines, DataFrames, and runtime objects from API response.
     """
     cleaned = dict(audit_result)
 
@@ -186,47 +310,55 @@ def map_audit_exception_to_http(error: AuditCopilotException) -> HTTPException:
     message = str(error)
     lowered = message.lower()
 
-    if (
-        "target column" in lowered
-        or "dataset is empty" in lowered
-        or "must contain at least" in lowered
-        or "not found" in lowered
-        or "invalid" in lowered
-    ):
+    bad_request_keywords = {
+        "target column",
+        "dataset is empty",
+        "must contain at least",
+        "not found",
+        "invalid",
+        "unsupported",
+        "empty",
+        "parsing failed",
+        "malformed",
+    }
+
+    if any(keyword in lowered for keyword in bad_request_keywords):
         return HTTPException(status_code=400, detail=message)
 
     return HTTPException(status_code=500, detail=message)
 
 
-@app.get("/")
-def root() -> dict[str, Any]:
+def make_summary_response(full_result: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build lightweight response from full audit result.
+    """
+    leakage = full_result.get("leakage", {}) or {}
+    baseline_results = full_result.get("baseline_results", {}) or {}
+
     return {
-        "message": "Agentic ML Audit Copilot API is running.",
-        "docs": "/docs",
-        "health": "/health",
-        "human_in_the_loop": True,
+        "message": full_result.get("message"),
+        "target_column": full_result.get("target_column"),
+        "problem_type": full_result.get("problem_type"),
+        "audit_score": full_result.get("audit_score"),
+        "human_review": full_result.get("human_review"),
+        "execution_summary": full_result.get("execution_summary"),
+        "leakage_summary": {
+            "total_possible_leakage_risks": leakage.get(
+                "total_possible_leakage_risks",
+                0,
+            ),
+            "overall_severity": leakage.get("overall_severity", "none"),
+        },
+        "best_model": baseline_results.get("best_model"),
     }
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    return {
-        "status": "healthy",
-        "service": "agentic-ml-audit-copilot",
-        "version": str(get_config_value("project.version", "1.0.0")),
-    }
-
-
-@app.post("/audit")
-async def run_audit(
-    file: UploadFile = File(...),
-    target_column: str = Form(...),
+async def execute_audit_request(
+    file: UploadFile,
+    target_column: str,
 ) -> dict[str, Any]:
     """
-    Upload a CSV dataset and run the full ML audit workflow.
-
-    The workflow is CPU-heavy, so it runs in a threadpool to avoid blocking
-    FastAPI's event loop.
+    Shared implementation for full and summary audit endpoints.
     """
     file_path: Path | None = None
 
@@ -288,6 +420,39 @@ async def run_audit(
         cleanup_uploaded_file(file_path)
 
 
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "message": "Agentic ML Audit Copilot API is running.",
+        "docs": "/docs",
+        "health": "/health",
+        "human_in_the_loop": True,
+    }
+
+
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    return {
+        "status": "healthy",
+        "service": "agentic-ml-audit-copilot",
+        "version": str(get_config_value("project.version", "1.0.0")),
+    }
+
+
+@app.post("/audit")
+async def run_audit(
+    file: UploadFile = File(...),
+    target_column: str = Form(...),
+) -> dict[str, Any]:
+    """
+    Upload a CSV dataset and run the full ML audit workflow.
+
+    The workflow is CPU-heavy, so it runs in a threadpool to avoid blocking
+    FastAPI's event loop.
+    """
+    return await execute_audit_request(file=file, target_column=target_column)
+
+
 @app.post("/audit/summary")
 async def run_audit_summary(
     file: UploadFile = File(...),
@@ -295,25 +460,6 @@ async def run_audit_summary(
 ) -> dict[str, Any]:
     """
     Lightweight endpoint that returns only the top-level audit summary.
-
-    Useful for integrations that do not need full report payloads.
     """
-    full_result = await run_audit(file=file, target_column=target_column)
-
-    return {
-        "message": full_result.get("message"),
-        "target_column": full_result.get("target_column"),
-        "problem_type": full_result.get("problem_type"),
-        "audit_score": full_result.get("audit_score"),
-        "human_review": full_result.get("human_review"),
-        "execution_summary": full_result.get("execution_summary"),
-        "leakage_summary": {
-            "total_possible_leakage_risks": full_result.get("leakage", {}).get(
-                "total_possible_leakage_risks", 0
-            ),
-            "overall_severity": full_result.get("leakage", {}).get(
-                "overall_severity", "none"
-            ),
-        },
-        "best_model": full_result.get("baseline_results", {}).get("best_model"),
-    }
+    full_result = await execute_audit_request(file=file, target_column=target_column)
+    return make_summary_response(full_result)

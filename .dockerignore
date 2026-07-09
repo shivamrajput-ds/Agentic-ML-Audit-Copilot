@@ -1,28 +1,63 @@
-.git
-.gitignore
-
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
+# Virtual environments
 .venv/
 venv/
 env/
+ENV/
 
+# Local secrets
 .env
 .env.*
+!.env.example
 
-logs/
-reports/
-uploads/
-artifacts/
-mlruns/
-mlflow.db
+# Git / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
 
-.ipynb_checkpoints/
-.pytest_cache/
-.mypy_cache/
-
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Runtime outputs
+logs/
+reports/
+artifacts/
+.cache/
+data/uploads/
+mlruns/
+
+# Large/local data
+data/raw/
+data/processed/
+data/interim/
+*.parquet
+*.pkl
+*.pickle
+*.joblib
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Docker
+docker-compose.override.yml
+
+# Tests/cache
+.tox/
+dist/
+build/
+*.egg-info/

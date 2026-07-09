@@ -1,27 +1,38 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+mkdir -p data/uploads logs reports artifacts/mlflow_temp .cache
 
-echo "Starting Agentic ML Audit Copilot..."
+API_HOST="${API_HOST:-0.0.0.0}"
+API_PORT="${API_PORT:-8000}"
+STREAMLIT_HOST="${STREAMLIT_HOST:-0.0.0.0}"
+STREAMLIT_PORT="${STREAMLIT_PORT:-8501}"
 
-mkdir -p logs reports uploads artifacts
+echo "Starting Agentic ML Audit Copilot"
+echo "FastAPI:    http://${API_HOST}:${API_PORT}"
+echo "Streamlit:  http://${STREAMLIT_HOST}:${STREAMLIT_PORT}"
 
-mlflow server \
-  --host 0.0.0.0 \
-  --port 5000 \
-  --backend-store-uri sqlite:///mlflow.db \
-  --default-artifact-root ./mlruns &
-
-# BUG FIX: this previously pointed to "app.api.main:app", but there is no
-# app/api/main.py in this project — the FastAPI app instance lives
-# directly in app/api.py as `app = FastAPI(...)`. The old path made
-# uvicorn crash on startup with "ModuleNotFoundError: No module named
-# 'app.api.main'". Corrected to "app.api:app".
 uvicorn app.api:app \
-  --host 0.0.0.0 \
-  --port 8000 &
+  --host "${API_HOST}" \
+  --port "${API_PORT}" \
+  --workers "${API_WORKERS:-1}" &
+
+API_PID=$!
 
 streamlit run app/streamlit_app.py \
-  --server.address 0.0.0.0 \
-  --server.port 8501 \
-  --server.headless true
+  --server.address "${STREAMLIT_HOST}" \
+  --server.port "${STREAMLIT_PORT}" \
+  --server.headless true &
+
+STREAMLIT_PID=$!
+
+shutdown() {
+  echo "Stopping services..."
+  kill "${API_PID}" "${STREAMLIT_PID}" 2>/dev/null || true
+  wait "${API_PID}" "${STREAMLIT_PID}" 2>/dev/null || true
+}
+
+trap shutdown INT TERM
+
+wait -n "${API_PID}" "${STREAMLIT_PID}"
+shutdown

@@ -74,16 +74,61 @@ def validate_dataset_path(dataset_path: str | Path) -> Path:
     return path
 
 
+def get_file_size_mb(path: Path) -> float:
+    """
+    Return file size in MB.
+    """
+    return round(path.stat().st_size / (1024 * 1024), 2)
+
+
+def read_csv_with_fallback(path: Path, **kwargs: Any) -> pd.DataFrame:
+    """
+    Read CSV with common encoding fallback.
+    """
+    try:
+        return pd.read_csv(path, **kwargs)
+    except UnicodeDecodeError:
+        return pd.read_csv(path, encoding="latin1", **kwargs)
+    except pd.errors.EmptyDataError as error:
+        raise InvalidDatasetError("CSV file is empty or has no columns.") from error
+    except pd.errors.ParserError as error:
+        raise InvalidDatasetError(
+            "CSV parsing failed. File may be corrupt or malformed.",
+            error_detail=str(error),
+        ) from error
+
+
+def validate_loaded_dataframe(df: pd.DataFrame) -> None:
+    """
+    Validate dataframe after loading.
+    """
+    if df.empty:
+        raise InvalidDatasetError("Loaded dataset is empty.")
+
+    if df.columns.empty:
+        raise InvalidDatasetError("Loaded dataset has no columns.")
+
+    duplicate_columns = df.columns[df.columns.duplicated()].tolist()
+    if duplicate_columns:
+        raise InvalidDatasetError(
+            f"Duplicate column names found: {duplicate_columns}"
+        )
+
+
+
+
 def load_dataset(dataset_path: str | Path) -> pd.DataFrame:
     """
     Load tabular dataset.
 
-    Currently supports CSV only.
+    For normal files, the full CSV is loaded.
+    For very large files, only max_rows are loaded when sampling is enabled.
     """
     try:
         path = validate_dataset_path(dataset_path)
 
         max_rows = int(get_config_value("dataset.max_rows", 1_000_000))
+        max_file_size_mb = float(get_config_value("dataset.max_file_size_mb", 500))
         sample_large_dataset = as_bool(
             get_config_value("dataset.sample_large_dataset", True)
         )
@@ -91,23 +136,26 @@ def load_dataset(dataset_path: str | Path) -> pd.DataFrame:
         if path.suffix.lower() != ".csv":
             raise InvalidDatasetError("Only CSV files are currently supported.")
 
-        try:
-            df = pd.read_csv(path, low_memory=False)
-        except UnicodeDecodeError:
-            df = pd.read_csv(path, encoding="latin1", low_memory=False)
-        except pd.errors.EmptyDataError as error:
-            raise InvalidDatasetError("CSV file is empty or has no columns.") from error
-        except pd.errors.ParserError as error:
-            raise InvalidDatasetError(
-                "CSV parsing failed. File may be corrupt or malformed.",
-                error_detail=str(error),
-            ) from error
+        file_size_mb = get_file_size_mb(path)
 
-        if df.empty:
-            raise InvalidDatasetError("Loaded dataset is empty.")
+        read_kwargs: dict[str, Any] = {"low_memory": False}
 
-        if df.columns.empty:
-            raise InvalidDatasetError("Loaded dataset has no columns.")
+        if file_size_mb > max_file_size_mb:
+            if not sample_large_dataset:
+                raise InvalidDatasetError(
+                    f"Dataset file is {file_size_mb} MB, exceeding configured "
+                    f"max_file_size_mb={max_file_size_mb}."
+                )
+
+            read_kwargs["nrows"] = max_rows
+            logger.warning(
+                "Large dataset detected: %s MB. Loaded first %s rows for audit.",
+                file_size_mb,
+                max_rows,
+            )
+
+        df = read_csv_with_fallback(path, **read_kwargs)
+        validate_loaded_dataframe(df)
 
         if len(df) > max_rows:
             if not sample_large_dataset:
@@ -135,6 +183,7 @@ def load_dataset(dataset_path: str | Path) -> pd.DataFrame:
             "Failed to load dataset.",
             error_detail=str(error),
         ) from error
+
 
 
 def infer_datetime_columns(df: pd.DataFrame, max_check_columns: int = 50) -> list[str]:

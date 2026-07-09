@@ -25,11 +25,54 @@ IMBALANCE_LEVELS = {
 }
 
 
+SKLEARN_SCORING_MAP = {
+    "binary_classification": {
+        "f1": "f1",
+        "f1_score": "f1",
+        "roc_auc": "roc_auc",
+        "average_precision": "average_precision",
+        "balanced_accuracy": "balanced_accuracy",
+    },
+    "multiclass_classification": {
+        "f1_macro": "f1_macro",
+        "f1_weighted": "f1_weighted",
+        "balanced_accuracy": "balanced_accuracy",
+        "accuracy": "accuracy",
+    },
+    "regression": {
+        "rmse": "neg_root_mean_squared_error",
+        "mae": "neg_mean_absolute_error",
+        "r2": "r2",
+        "r2_score": "r2",
+    },
+}
+
+
 def normalize_text(value: str | None, default: str = "unknown") -> str:
+    """
+    Normalize small config/user text values.
+    """
     if value is None or str(value).strip() == "":
         return default
 
     return str(value).lower().strip()
+
+
+def get_config_text(path: str, default: str) -> str:
+    """
+    Read config value as clean lower-case text.
+    """
+    value = get_config_value(path, default)
+    return normalize_text(str(value), default=default)
+
+
+def get_safe_scoring_metric(problem_type: str, configured_metric: str, fallback: str) -> str:
+    """
+    Return a sklearn-compatible scoring metric.
+    """
+    metric_map = SKLEARN_SCORING_MAP.get(problem_type, {})
+    normalized_metric = normalize_text(configured_metric, fallback)
+    return metric_map.get(normalized_metric, fallback)
 
 
 def recommend_metrics(
@@ -37,7 +80,7 @@ def recommend_metrics(
     imbalance_severity: str | None = None,
 ) -> dict[str, Any]:
     """
-    Recommend evaluation metrics based on detected ML problem type.
+    Recommend evaluation metrics based on the detected ML problem type.
     """
     try:
         logger.info("Starting metric recommendation")
@@ -83,7 +126,7 @@ def recommend_metrics(
 
 
 def _binary_classification_metrics(imbalance_severity: str) -> dict[str, Any]:
-    configured_default = get_config_value(
+    configured_default = get_config_text(
         "metrics.classification_default",
         "f1_weighted",
     )
@@ -101,11 +144,15 @@ def _binary_classification_metrics(imbalance_severity: str) -> dict[str, Any]:
 
     if imbalance_severity in {"moderate", "high", "severe"}:
         primary_metric = "F1 Score"
-        scoring_metric = "f1"
+        scoring_metric = get_safe_scoring_metric(
+            "binary_classification",
+            configured_default,
+            "f1",
+        )
         reason = (
-            "Binary classification with imbalance should not rely only on accuracy. "
-            "F1 balances precision and recall, while PR-AUC is useful when the positive "
-            "class is rare."
+            "Binary classification with imbalance should not rely on accuracy. "
+            "F1 balances precision and recall. PR-AUC is also important when "
+            "the positive class is rare."
         )
     else:
         primary_metric = "F1 Score"
@@ -134,14 +181,14 @@ def _binary_classification_metrics(imbalance_severity: str) -> dict[str, Any]:
         "reason": reason,
         "notes": [
             "Use Accuracy only as a supporting metric.",
-            "Use PR-AUC especially when the positive class is rare.",
+            "Use PR-AUC when the positive class is rare.",
             "Use Confusion Matrix to inspect false positives and false negatives.",
         ],
     }
 
 
 def _multiclass_classification_metrics(imbalance_severity: str) -> dict[str, Any]:
-    configured_default = get_config_value(
+    configured_default = get_config_text(
         "metrics.classification_default",
         "f1_weighted",
     )
@@ -165,7 +212,11 @@ def _multiclass_classification_metrics(imbalance_severity: str) -> dict[str, Any
         )
     else:
         primary_metric = "Weighted F1 Score"
-        scoring_metric = "f1_weighted"
+        scoring_metric = get_safe_scoring_metric(
+            "multiclass_classification",
+            configured_default,
+            "f1_weighted",
+        )
         reason = (
             "Multiclass classification needs metrics that evaluate all classes. "
             "Macro metrics treat all classes equally, while weighted metrics account "
@@ -196,9 +247,15 @@ def _multiclass_classification_metrics(imbalance_severity: str) -> dict[str, Any
 
 
 def _regression_metrics() -> dict[str, Any]:
-    configured_default = get_config_value(
+    configured_default = get_config_text(
         "metrics.regression_default",
         "rmse",
+    )
+
+    scoring_metric = get_safe_scoring_metric(
+        "regression",
+        configured_default,
+        "neg_root_mean_squared_error",
     )
 
     metrics = [
@@ -214,7 +271,7 @@ def _regression_metrics() -> dict[str, Any]:
         "imbalance_severity": "not_applicable",
         "recommended_metrics": metrics,
         "primary_metric": "RMSE",
-        "scoring_metric": "neg_root_mean_squared_error",
+        "scoring_metric": scoring_metric,
         "configured_default": configured_default,
         "secondary_metrics": ["MAE", "R2 Score", "Median Absolute Error"],
         "higher_is_better": False,

@@ -18,10 +18,17 @@ ENV_PATH = ROOT_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
 
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+FALSE_VALUES = {"false", "0", "no", "n", "off"}
+
+
 @lru_cache(maxsize=1)
 def load_config(config_path: str | Path = CONFIG_PATH) -> dict[str, Any]:
     """
     Load config.yaml once and return it as a dictionary.
+
+    The config is cached because almost every module reads from it.
+    Use reload_config() in tests or after changing config at runtime.
     """
     try:
         path = Path(config_path)
@@ -54,24 +61,28 @@ def load_config(config_path: str | Path = CONFIG_PATH) -> dict[str, Any]:
 
 def reload_config() -> None:
     """
-    Clear cached config. Useful in tests.
+    Clear cached config and reload .env.
+    Useful in tests, notebooks, and Streamlit reruns.
     """
     load_config.cache_clear()
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 
 def get_config_value(key_path: str, default: Any = None) -> Any:
     """
     Get nested config value using dot notation.
+
+    Example:
+        get_config_value("modeling.test_size", 0.2)
     """
-    if not key_path:
+    if not key_path or str(key_path).strip() == "":
         return default
 
     value: Any = load_config()
 
-    for key in key_path.split("."):
+    for key in str(key_path).split("."):
         if not isinstance(value, dict) or key not in value:
             return default
-
         value = value[key]
 
     return value
@@ -81,10 +92,15 @@ def get_env_value(key: str, default: Any = None) -> Any:
     """
     Get environment variable from .env or system environment.
     """
-    if not key:
+    if not key or str(key).strip() == "":
         return default
 
-    return os.getenv(key, default)
+    value = os.getenv(str(key).strip())
+
+    if value is None or str(value).strip() == "":
+        return default
+
+    return value
 
 
 def get_bool_config(key_path: str, default: bool = False) -> bool:
@@ -92,14 +108,68 @@ def get_bool_config(key_path: str, default: bool = False) -> bool:
     Get boolean config value safely.
     """
     value = get_config_value(key_path, default)
+    return to_bool(value, default=default)
 
+
+def to_bool(value: Any, default: bool = False) -> bool:
+    """
+    Convert config/env values into bool without surprising string behavior.
+    """
     if isinstance(value, bool):
         return value
 
+    if value is None:
+        return default
+
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        normalized = value.lower().strip()
+        if normalized in TRUE_VALUES:
+            return True
+        if normalized in FALSE_VALUES:
+            return False
+        return default
 
     return bool(value)
+
+
+def get_int_config(key_path: str, default: int) -> int:
+    """
+    Read an integer config value with safe fallback.
+    """
+    value = get_config_value(key_path, default)
+
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def get_float_config(key_path: str, default: float) -> float:
+    """
+    Read a float config value with safe fallback.
+    """
+    value = get_config_value(key_path, default)
+
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def get_list_config(key_path: str, default: list[Any] | None = None) -> list[Any]:
+    """
+    Read a list config value safely.
+    """
+    fallback = default or []
+    value = get_config_value(key_path, fallback)
+
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    return fallback
 
 
 def get_groq_api_key() -> str | None:
@@ -119,10 +189,20 @@ def get_llm_config() -> dict[str, Any]:
     Get LLM configuration from config.yaml and environment variables.
     """
     return {
-        "provider": get_config_value("llm.provider", "groq"),
-        "model": get_config_value("llm.model", "llama-3.3-70b-versatile"),
-        "temperature": float(get_config_value("llm.temperature", 0.2)),
-        "max_tokens": int(get_config_value("llm.max_tokens", 2000)),
-        "timeout": int(get_config_value("llm.timeout", 120)),
+        "provider": str(get_config_value("llm.provider", "groq")),
+        "model": str(get_config_value("llm.model", "llama-3.3-70b-versatile")),
+        "temperature": get_float_config("llm.temperature", 0.2),
+        "max_tokens": get_int_config("llm.max_tokens", 2000),
+        "timeout": get_int_config("llm.timeout", 120),
         "api_key": get_groq_api_key(),
+        "enabled": get_bool_config("llm.enabled", True),
+        "cache_enabled": get_bool_config("llm.cache_enabled", True),
+        "max_retries": get_int_config("llm.max_retries", 3),
     }
+
+
+def get_project_root() -> Path:
+    """
+    Return repository root path.
+    """
+    return ROOT_DIR

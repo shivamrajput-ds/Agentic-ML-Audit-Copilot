@@ -21,6 +21,7 @@ dataset:
   allowed_extensions:
     - ".csv"
   max_categories: 10
+  large_file_warning_mb: 100
 
 audit:
   high_missing_threshold: 50
@@ -52,6 +53,7 @@ leakage:
   classification_proxy_threshold: 0.75
   duplicate_target_threshold: 0.95
   encoded_target_correlation_threshold: 0.90
+  mutual_information_threshold: 0.20
   target_like_keywords:
     - "target"
     - "label"
@@ -89,6 +91,18 @@ modeling:
   random_forest_min_samples_leaf: 2
   logistic_max_iter: 1000
 
+preprocessing:
+  numeric_imputer_strategy: "median"
+  categorical_imputer_strategy: "most_frequent"
+  scale_numeric: true
+  drop_id_like_columns: true
+  drop_high_cardinality_columns: false
+
+workflow:
+  node_retry_attempts: 1
+  node_retry_sleep_seconds: 0.5
+  skip_imbalance_for_regression: true
+
 mlflow:
   enabled: true
   tracking_uri: null
@@ -109,6 +123,11 @@ api:
   cleanup_uploaded_files: true
   allowed_extensions:
     - ".csv"
+  cors_allow_origins:
+    - "*"
+  request_id_header: "X-Request-ID"
+  expose_headers:
+    - "X-Request-ID"
 
 streamlit:
   max_upload_mb: 25
@@ -116,6 +135,7 @@ streamlit:
   theme: "dark"
   allowed_extensions:
     - ".csv"
+  show_raw_json: true
 
 reports:
   output_dir: "reports"
@@ -124,14 +144,22 @@ reports:
   save_markdown: true
 
 llm:
+  enabled: true
   provider: "groq"
   model: "openai/gpt-oss-120b"
   temperature: 0.2
   max_tokens: 2000
   timeout: 120
+  max_retries: 3
+  retry_base_seconds: 1
+  cache_enabled: true
+  cache_dir: "artifacts/report_cache"
+  hallucination_guard_enabled: true
+  prompt_version: "v1"
 
 security:
   allow_pickle_loading: false
+  sanitize_downloads: true
 
 drift:
   enabled: false
@@ -141,6 +169,8 @@ explainability:
   run_shap: true
   max_samples: 200
   top_n_features: 20
+  generate_plots: true
+  plot_max_features: 20
 
 visualization:
   dpi: 150
@@ -148,8 +178,3 @@ visualization:
 
 problem_detection:
   classification_unique_threshold: 20
-
-preprocessing:
-  numeric_imputer_strategy: "median"
-  categorical_imputer_strategy: "most_frequent"
-  scale_numeric: true

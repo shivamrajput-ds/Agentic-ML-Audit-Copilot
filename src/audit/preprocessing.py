@@ -35,7 +35,7 @@ def as_bool(value: Any) -> bool:
 
 def validate_preprocessing_inputs(df: pd.DataFrame, target_column: str) -> None:
     """
-    Validate preprocessing inputs.
+    Validate preprocessing inputs before building pipelines or splitting data.
     """
     if df is None or df.empty:
         raise PreprocessingError("Input dataframe is empty.")
@@ -53,9 +53,6 @@ def validate_preprocessing_inputs(df: pd.DataFrame, target_column: str) -> None:
 def clean_infinite_values(df: pd.DataFrame) -> pd.DataFrame:
     """
     Replace np.inf and -np.inf with NaN before imputation/modeling.
-
-    This keeps the sklearn pipeline simple and avoids custom transformers that
-    can break MLflow/skops model serialization.
     """
     cleaned = df.copy()
     numeric_columns = cleaned.select_dtypes(include=["number"]).columns
@@ -69,38 +66,102 @@ def clean_infinite_values(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def detect_id_like_columns(features: pd.DataFrame) -> list[str]:
+def is_string_like_series(series: pd.Series) -> bool:
     """
-    Detect ID-like columns that should usually be dropped before one-hot encoding.
+    Return True for string/categorical columns.
+
+    Numeric columns can also be highly unique, but that does not make them IDs.
+    This prevents valid numeric features like income, sales, or attendance from
+    being dropped just because they have many unique values.
     """
-    id_unique_percent_threshold = float(
-        get_config_value("audit.id_unique_percent_threshold", 95)
+    dtype_name = str(series.dtype).lower()
+
+    return (
+        dtype_name == "object"
+        or dtype_name.startswith("string")
+        or dtype_name == "category"
     )
 
-    id_keywords = {
+
+def column_name_suggests_id(column: str) -> bool:
+    """
+    Detect identifier-like column names using safer token matching.
+
+    Avoid broad substring mistakes such as dropping "income" only because it
+    contains "id" somewhere in the text.
+    """
+    column_lower = str(column).lower().strip()
+    normalized = (
+        column_lower.replace("-", "_")
+        .replace(" ", "_")
+        .replace(".", "_")
+    )
+
+    exact_id_names = {
         "id",
         "uuid",
         "guid",
         "identifier",
         "serial",
-        "roll",
-        "roll_no",
-        "zipcode",
-        "zip",
         "email",
         "phone",
         "mobile",
+        "zipcode",
+        "zip",
+        "roll",
+        "roll_no",
+        "student_id",
+        "customer_id",
+        "user_id",
+        "record_id",
     }
+
+    if normalized in exact_id_names:
+        return True
+
+    id_suffixes = (
+        "_id",
+        "_uuid",
+        "_guid",
+        "_identifier",
+        "_serial",
+        "_email",
+        "_phone",
+        "_mobile",
+        "_zipcode",
+        "_zip",
+        "_roll",
+        "_roll_no",
+    )
+
+    return normalized.endswith(id_suffixes)
+
+
+def detect_id_like_columns(features: pd.DataFrame) -> list[str]:
+    """
+    Detect ID-like columns that should usually be dropped before modeling.
+
+    Important:
+    - Name-based ID detection applies to all dtypes.
+    - High-uniqueness detection applies only to string/categorical columns.
+      Numeric high-uniqueness columns are often valid continuous features.
+    """
+    id_unique_percent_threshold = float(
+        get_config_value("audit.id_unique_percent_threshold", 95)
+    )
 
     id_like_columns: list[str] = []
 
     for column in features.columns:
-        column_lower = str(column).lower().strip()
-        unique_count = int(features[column].nunique(dropna=True))
+        series = features[column]
+        unique_count = int(series.nunique(dropna=True))
         unique_percent = (unique_count / len(features)) * 100 if len(features) else 0
 
-        name_suggests_id = any(keyword in column_lower for keyword in id_keywords)
-        uniqueness_suggests_id = unique_percent >= id_unique_percent_threshold
+        name_suggests_id = column_name_suggests_id(str(column))
+        uniqueness_suggests_id = (
+            is_string_like_series(series)
+            and unique_percent >= id_unique_percent_threshold
+        )
 
         if name_suggests_id or uniqueness_suggests_id:
             id_like_columns.append(column)
@@ -133,7 +194,7 @@ def detect_high_cardinality_columns(features: pd.DataFrame) -> list[str]:
 
 def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[str]]:
     """
-    Identify feature column groups.
+    Identify feature column groups for preprocessing.
 
     High-cardinality and ID-like columns can optionally be dropped by config.
     """
@@ -150,11 +211,10 @@ def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[
     )
 
     columns_to_drop = sorted(set(id_like_columns + high_cardinality_columns))
-
     features_for_model = features.drop(columns=columns_to_drop, errors="ignore")
 
     datetime_columns = features_for_model.select_dtypes(
-        include=["datetime64", "datetimetz"]
+        include=["datetime", "datetimetz"]
     ).columns.tolist()
 
     numeric_columns = features_for_model.select_dtypes(include=["number"]).columns.tolist()
@@ -233,7 +293,7 @@ def build_categorical_pipeline() -> Pipeline:
                 "encoder",
                 OneHotEncoder(
                     handle_unknown="ignore",
-                    sparse_output=False,
+                    sparse_output=True,
                 ),
             ),
         ]
@@ -255,7 +315,7 @@ def build_datetime_pipeline() -> Pipeline:
                 ),
             ),
             ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
+            ("scaler", StandardScaler(with_mean=False)),
         ]
     )
 
@@ -266,6 +326,9 @@ def build_preprocessing_pipeline(
 ) -> dict[str, Any]:
     """
     Build reusable sklearn preprocessing pipeline.
+
+    The returned preprocessor is not fitted here. It is fitted inside each model
+    Pipeline, which avoids train-test preprocessing leakage.
     """
     try:
         logger.info("Starting preprocessing pipeline creation")
@@ -302,6 +365,7 @@ def build_preprocessing_pipeline(
         preprocessor = ColumnTransformer(
             transformers=transformers,
             remainder="drop",
+            sparse_threshold=0.3,
         )
 
         warnings: list[str] = []
@@ -376,7 +440,7 @@ def split_features_target(
     """
     Split dataframe into feature matrix X and target vector y.
 
-    Also cleans infinite values before modeling.
+    Also cleans infinite values and drops configured ID/high-cardinality columns.
     """
     try:
         logger.info("Splitting features and target")

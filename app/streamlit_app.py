@@ -165,6 +165,80 @@ st.markdown(
 
 
 # ---------------------------------------------------------------------------
+# Enterprise visual polish
+# ---------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(108, 92, 231, 0.10), transparent 28%),
+            radial-gradient(circle at top right, rgba(0, 212, 255, 0.11), transparent 30%),
+            linear-gradient(180deg, #F8FAFC 0%, #EEF2FF 52%, #F8FAFC 100%);
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #FFFFFF 0%, #F4F7FF 100%);
+        border-right: 1px solid rgba(108, 92, 231, 0.14);
+    }
+
+    [data-testid="stFileUploader"] {
+        border: 1.5px dashed rgba(108, 92, 231, 0.42);
+        border-radius: 18px;
+        padding: 0.85rem;
+        background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,249,255,0.96));
+    }
+
+    div[data-testid="stAlert"] {
+        border-radius: 14px;
+    }
+
+    .stage-pill {
+        display: inline-block;
+        margin: 0.15rem 0.2rem 0.15rem 0;
+        padding: 0.36rem 0.62rem;
+        border-radius: 999px;
+        background: rgba(108, 92, 231, 0.10);
+        color: #211C84;
+        font-size: 0.78rem;
+        font-weight: 750;
+        border: 1px solid rgba(108, 92, 231, 0.16);
+    }
+
+    .mini-card {
+        padding: 0.9rem 1rem;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(108, 92, 231, 0.14);
+        box-shadow: 0 10px 24px rgba(22,22,42,0.045);
+        margin-bottom: 0.7rem;
+    }
+
+    .mini-card-title {
+        font-size: 0.86rem;
+        font-weight: 800;
+        color: #211C84;
+        margin-bottom: 0.2rem;
+    }
+
+    .mini-card-text {
+        font-size: 0.82rem;
+        color: #4B5563;
+        line-height: 1.45;
+    }
+
+    .stDownloadButton > button {
+        border-radius: 14px;
+        font-weight: 800;
+        border: 1px solid rgba(108, 92, 231, 0.22);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
 def as_bool(value: Any) -> bool:
@@ -238,7 +312,15 @@ def sanitize_csv_cell(value: Any) -> Any:
 
 
 def sanitize_dataframe_for_csv(df: pd.DataFrame) -> pd.DataFrame:
-    return df.map(sanitize_csv_cell)
+    """
+    Sanitize dataframe cells before CSV download.
+
+    Uses DataFrame.map on newer pandas and falls back to applymap on older versions.
+    """
+    if hasattr(df, "map"):
+        return df.map(sanitize_csv_cell)
+
+    return df.applymap(sanitize_csv_cell)
 
 
 def to_json_download(data: dict[str, Any]) -> str:
@@ -352,6 +434,37 @@ def show_verdict(result: dict[str, Any]) -> None:
     st.markdown(f'<div class="{css}">{text}</div>', unsafe_allow_html=True)
 
 
+def show_stage_timeline(result: dict[str, Any] | None = None) -> None:
+    """
+    Show a simple enterprise-style audit stage timeline.
+    """
+    stages = [
+        "Load",
+        "Profile",
+        "Problem Type",
+        "Quality",
+        "Leakage",
+        "Imbalance",
+        "Metrics",
+        "Baselines",
+        "Explainability",
+        "Report",
+    ]
+
+    timings = {}
+    if isinstance(result, dict):
+        timings = result.get("execution_summary", {}).get("node_timings", {}) or {}
+
+    pills = []
+    for stage in stages:
+        key = stage.lower().replace(" ", "_")
+        seconds = timings.get(key)
+        label = f"{stage} · {seconds}s" if seconds is not None else stage
+        pills.append(f'<span class="stage-pill">{label}</span>')
+
+    st.markdown("".join(pills), unsafe_allow_html=True)
+
+
 def show_hero() -> None:
     st.markdown(
         f"""
@@ -421,6 +534,7 @@ def show_sidebar() -> None:
 def show_upload_panel() -> None:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("📤 Upload Dataset")
+    show_stage_timeline(st.session_state.get("audit_result"))
 
     uploaded_file = st.file_uploader(
         "Upload a CSV file",
