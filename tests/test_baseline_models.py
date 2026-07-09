@@ -1,6 +1,7 @@
 """
 Tests for src/audit/baseline_models.py.
 """
+
 from __future__ import annotations
 
 import pytest

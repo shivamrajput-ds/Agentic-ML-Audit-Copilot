@@ -4,6 +4,7 @@ Shared pytest fixtures for the audit test suite.
 The fixtures use small deterministic in-memory datasets. This keeps tests fast,
 isolated, and independent from files under data/sample/.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

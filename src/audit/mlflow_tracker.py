@@ -15,27 +15,35 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import MLflowTrackingError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
+
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+BLOCKED_ARTIFACT_KEYS = {
+    "trained_model_objects",
+    "runtime_objects",
+    "model_object",
+    "sample_features",
+    "sample_target",
+    "train_features",
+    "test_features",
+    "label_encoder",
+    "df",
+}
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
 def safe_metric_name(name: str) -> str:
-    """
-    Convert metric names to MLflow-safe keys.
-    """
+    """Convert metric names to MLflow-safe keys."""
     return (
         str(name)
         .lower()
@@ -49,33 +57,17 @@ def safe_metric_name(name: str) -> str:
 
 
 def is_number(value: Any) -> bool:
-    """
-    Return True for numeric values that MLflow can log as metrics.
-    """
+    """Return True for numeric values that MLflow can log as metrics."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def remove_unserializable_objects(data: Any) -> Any:
-    """
-    Remove model objects, DataFrames, and unserializable runtime objects before JSON logging.
-    """
-    blocked_keys = {
-        "trained_model_objects",
-        "runtime_objects",
-        "model_object",
-        "sample_features",
-        "sample_target",
-        "train_features",
-        "test_features",
-        "label_encoder",
-        "df",
-    }
-
+    """Remove runtime/model objects before JSON artifact logging."""
     if isinstance(data, dict):
         cleaned: dict[str, Any] = {}
 
         for key, value in data.items():
-            if key in blocked_keys:
+            if str(key) in BLOCKED_ARTIFACT_KEYS:
                 continue
 
             cleaned[str(key)] = remove_unserializable_objects(value)
@@ -109,9 +101,7 @@ def remove_unserializable_objects(data: Any) -> Any:
 
 
 def log_json_artifact(data: dict[str, Any], filename: str) -> None:
-    """
-    Log JSON artifact safely to MLflow.
-    """
+    """Log JSON artifact safely to MLflow."""
     temp_dir = Path("artifacts/mlflow_temp")
     temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -125,13 +115,9 @@ def log_json_artifact(data: dict[str, Any], filename: str) -> None:
 
 
 def validate_baseline_results(baseline_results: dict[str, Any]) -> None:
-    """
-    Validate baseline results before MLflow tracking.
-    """
+    """Validate baseline results before MLflow tracking."""
     if not baseline_results:
-        raise MLflowTrackingError(
-            "Baseline results are required for MLflow tracking."
-        )
+        raise MLflowTrackingError("Baseline results are required for MLflow tracking.")
 
     results = baseline_results.get("results")
 
@@ -143,9 +129,7 @@ def validate_baseline_results(baseline_results: dict[str, Any]) -> None:
 
 
 def setup_mlflow(experiment_name: str) -> None:
-    """
-    Configure MLflow tracking URI and experiment.
-    """
+    """Configure MLflow tracking URI and experiment."""
     tracking_uri = get_config_value("mlflow.tracking_uri", None)
 
     if tracking_uri:
@@ -162,9 +146,7 @@ def log_common_parent_params(
     results: dict[str, Any],
     best_model: dict[str, Any],
 ) -> None:
-    """
-    Log parent run parameters.
-    """
+    """Log parent run parameters."""
     mlflow.log_param("run_type", "baseline_experiment_parent")
     mlflow.log_param("problem_type", problem_type)
     mlflow.log_param("target_column", target_column)
@@ -199,9 +181,7 @@ def log_common_parent_params(
 
 
 def log_preprocessing_params(preprocessing_summary: dict[str, Any]) -> None:
-    """
-    Log preprocessing summary parameters for each child run.
-    """
+    """Log preprocessing summary parameters for each child run."""
     mlflow.log_param(
         "numeric_columns_count",
         len(preprocessing_summary.get("numeric_columns", [])),
@@ -225,15 +205,31 @@ def log_preprocessing_params(preprocessing_summary: dict[str, Any]) -> None:
 
 
 def log_metrics(metrics: dict[str, Any]) -> None:
-    """
-    Log numeric metrics safely.
-    """
+    """Log numeric metrics safely."""
     for metric_name, metric_value in metrics.items():
         if is_number(metric_value):
             mlflow.log_metric(
                 safe_metric_name(metric_name),
                 float(metric_value),
             )
+
+
+def _infer_model_signature(
+    model_object: Any,
+    sample_input: pd.DataFrame,
+) -> tuple[Any | None, pd.DataFrame | None]:
+    """Best-effort model signature inference for MLflow model logging."""
+    try:
+        input_example = sample_input.head(5)
+        predictions_sample = model_object.predict(input_example)
+        signature = infer_signature(input_example, predictions_sample)
+        return signature, input_example
+    except (AttributeError, TypeError, ValueError) as error:
+        logger.warning(
+            "Could not infer model signature. Logging model without signature: %s",
+            error,
+        )
+        return None, None
 
 
 def try_log_best_model(
@@ -245,7 +241,8 @@ def try_log_best_model(
     """
     Try to log best model artifact.
 
-    Failure should not fail the entire audit; metrics are more important than model artifact.
+    Failure should not fail the entire audit; metrics are more important than
+    model artifact persistence.
     """
     if model_object is None:
         logger.warning("Best model object not found. Skipping model logging.")
@@ -258,21 +255,15 @@ def try_log_best_model(
         }
 
         if sample_input is not None and not sample_input.empty:
-            try:
-                input_example = sample_input.head(5)
-                predictions_sample = model_object.predict(input_example)
+            signature, input_example = _infer_model_signature(
+                model_object, sample_input
+            )
 
-                log_model_kwargs["signature"] = infer_signature(
-                    input_example,
-                    predictions_sample,
-                )
+            if signature is not None:
+                log_model_kwargs["signature"] = signature
+
+            if input_example is not None:
                 log_model_kwargs["input_example"] = input_example
-
-            except Exception as signature_error:
-                logger.warning(
-                    "Could not infer model signature. Logging model without signature: %s",
-                    signature_error,
-                )
 
         mlflow.sklearn.log_model(**log_model_kwargs)
         active_run = mlflow.active_run()
@@ -284,13 +275,97 @@ def try_log_best_model(
         logger.info("Best model logged to MLflow: %s", logged_model_uri)
         return logged_model_uri
 
-    except Exception as error:
+    except (AttributeError, TypeError, ValueError, OSError) as error:
         logger.warning(
             "Model artifact logging skipped for %s. Metrics were still logged. Error: %s",
             model_name,
             error,
         )
         return None
+
+
+def _normalize_baseline_sections(
+    baseline_results: dict[str, Any],
+) -> tuple[list[Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Normalize optional baseline result sections into expected types."""
+    results = baseline_results.get("results", {})
+    best_model = baseline_results.get("best_model", {})
+    models_trained = baseline_results.get("models_trained", [])
+    preprocessing_summary = baseline_results.get("preprocessing_summary", {})
+    trained_model_objects = baseline_results.get("trained_model_objects", {})
+
+    if not isinstance(results, dict):
+        raise MLflowTrackingError("Baseline results must contain a valid results dict.")
+
+    if not isinstance(best_model, dict):
+        best_model = {}
+
+    if not isinstance(models_trained, list):
+        models_trained = list(results.keys())
+
+    if not isinstance(preprocessing_summary, dict):
+        preprocessing_summary = {}
+
+    if not isinstance(trained_model_objects, dict):
+        trained_model_objects = {}
+
+    return (
+        models_trained,
+        results,
+        best_model,
+        preprocessing_summary,
+        trained_model_objects,
+    )
+
+
+def _log_model_child_run(
+    model_name: str,
+    metrics: Any,
+    problem_type: str,
+    target_column: str,
+    best_model: dict[str, Any],
+    preprocessing_summary: dict[str, Any],
+    log_models: bool,
+    artifact_path: str,
+    trained_model_objects: dict[str, Any],
+    sample_input: pd.DataFrame | None,
+) -> tuple[str, str | None, bool]:
+    """Log a nested MLflow child run for a single baseline model."""
+    logged_model_uri: str | None = None
+    model_artifact_logged = False
+
+    with mlflow.start_run(run_name=str(model_name), nested=True) as child_run:
+        is_best_model = model_name == best_model.get("model_name")
+
+        mlflow.log_param("run_type", "baseline_model")
+        mlflow.log_param("problem_type", problem_type)
+        mlflow.log_param("target_column", target_column)
+        mlflow.log_param("model_name", model_name)
+        mlflow.log_param("is_best_model", is_best_model)
+        mlflow.log_param(
+            "selection_metric",
+            best_model.get("selection_metric", "N/A"),
+        )
+
+        log_preprocessing_params(preprocessing_summary)
+
+        if isinstance(metrics, dict):
+            log_metrics(metrics)
+
+        if is_best_model and is_number(best_model.get("score")):
+            mlflow.log_metric("best_model_score", float(best_model["score"]))
+
+        if log_models and is_best_model:
+            model_object = trained_model_objects.get(model_name)
+            logged_model_uri = try_log_best_model(
+                model_name=str(model_name),
+                model_object=model_object,
+                artifact_path=artifact_path,
+                sample_input=sample_input,
+            )
+            model_artifact_logged = logged_model_uri is not None
+
+        return child_run.info.run_id, logged_model_uri, model_artifact_logged
 
 
 def track_baseline_experiment(
@@ -310,7 +385,7 @@ def track_baseline_experiment(
         validate_baseline_results(baseline_results)
 
         experiment_name = experiment_name or str(
-            get_config_value("mlflow.experiment_name", "agentic_ml_audit_baselines")
+            get_config_value("mlflow.experiment_name", "agentic_ml_audit_baselines"),
         )
 
         log_models = as_bool(get_config_value("mlflow.log_models", True))
@@ -321,23 +396,14 @@ def track_baseline_experiment(
 
         problem_type = str(baseline_results.get("problem_type", "N/A"))
         target_column = str(baseline_results.get("target_column", "N/A"))
-        models_trained = baseline_results.get("models_trained", [])
-        results = baseline_results.get("results", {})
-        best_model = baseline_results.get("best_model", {})
-        preprocessing_summary = baseline_results.get("preprocessing_summary", {})
-        trained_model_objects = baseline_results.get("trained_model_objects", {})
 
-        if not isinstance(models_trained, list):
-            models_trained = list(results.keys())
-
-        if not isinstance(results, dict):
-            raise MLflowTrackingError("Baseline results must contain a valid results dict.")
-
-        if not isinstance(preprocessing_summary, dict):
-            preprocessing_summary = {}
-
-        if not isinstance(trained_model_objects, dict):
-            trained_model_objects = {}
+        (
+            models_trained,
+            results,
+            best_model,
+            preprocessing_summary,
+            trained_model_objects,
+        ) = _normalize_baseline_sections(baseline_results)
 
         run_ids: dict[str, str] = {}
         logged_model_uri: str | None = None
@@ -361,42 +427,31 @@ def track_baseline_experiment(
             for model_name, metrics in results.items():
                 logger.info("Logging MLflow child run for model: %s", model_name)
 
-                with mlflow.start_run(run_name=str(model_name), nested=True) as child_run:
-                    is_best_model = model_name == best_model.get("model_name")
-
-                    mlflow.log_param("run_type", "baseline_model")
-                    mlflow.log_param("problem_type", problem_type)
-                    mlflow.log_param("target_column", target_column)
-                    mlflow.log_param("model_name", model_name)
-                    mlflow.log_param("is_best_model", is_best_model)
-                    mlflow.log_param(
-                        "selection_metric",
-                        best_model.get("selection_metric", "N/A"),
+                child_run_id, child_model_uri, child_model_logged = (
+                    _log_model_child_run(
+                        model_name=str(model_name),
+                        metrics=metrics,
+                        problem_type=problem_type,
+                        target_column=target_column,
+                        best_model=best_model,
+                        preprocessing_summary=preprocessing_summary,
+                        log_models=log_models,
+                        artifact_path=artifact_path,
+                        trained_model_objects=trained_model_objects,
+                        sample_input=sample_input,
                     )
+                )
 
-                    log_preprocessing_params(preprocessing_summary)
+                run_ids[str(model_name)] = child_run_id
 
-                    if isinstance(metrics, dict):
-                        log_metrics(metrics)
+                if child_model_uri is not None:
+                    logged_model_uri = child_model_uri
 
-                    if is_best_model and is_number(best_model.get("score")):
-                        mlflow.log_metric("best_model_score", float(best_model["score"]))
-
-                    if log_models and is_best_model:
-                        model_object = trained_model_objects.get(model_name)
-                        logged_model_uri = try_log_best_model(
-                            model_name=str(model_name),
-                            model_object=model_object,
-                            artifact_path=artifact_path,
-                            sample_input=sample_input,
-                        )
-                        model_artifact_logged = logged_model_uri is not None
-
-                    run_ids[str(model_name)] = child_run.info.run_id
+                model_artifact_logged = model_artifact_logged or child_model_logged
 
             parent_run_id = parent_run.info.run_id
 
-        output = {
+        output: dict[str, Any] = {
             "enabled": True,
             "experiment_name": experiment_name,
             "parent_run_id": parent_run_id,
@@ -415,8 +470,7 @@ def track_baseline_experiment(
 
     except MLflowTrackingError:
         raise
-
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError, OSError) as error:
         logger.exception("MLflow tracking failed.")
         raise MLflowTrackingError(
             "MLflow tracking failed.",

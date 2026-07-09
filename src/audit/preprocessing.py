@@ -14,33 +14,45 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import PreprocessingError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
+def get_int_config_value(key_path: str, default: int) -> int:
+    """Read integer config values with safe fallback."""
+    try:
+        return int(get_config_value(key_path, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_float_config_value(key_path: str, default: float) -> float:
+    """Read float config values with safe fallback."""
+    try:
+        return float(get_config_value(key_path, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def validate_preprocessing_inputs(df: pd.DataFrame, target_column: str) -> None:
-    """
-    Validate preprocessing inputs before building pipelines or splitting data.
-    """
+    """Validate preprocessing inputs before building pipelines or splitting data."""
     if df is None or df.empty:
         raise PreprocessingError("Input dataframe is empty.")
 
-    if target_column is None or str(target_column).strip() == "":
+    if target_column is None or not str(target_column).strip():
         raise PreprocessingError("Target column is required.")
 
     if target_column not in df.columns:
@@ -51,9 +63,7 @@ def validate_preprocessing_inputs(df: pd.DataFrame, target_column: str) -> None:
 
 
 def clean_infinite_values(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Replace np.inf and -np.inf with NaN before imputation/modeling.
-    """
+    """Replace np.inf and -np.inf with NaN before imputation/modeling."""
     cleaned = df.copy()
     numeric_columns = cleaned.select_dtypes(include=["number"]).columns
 
@@ -90,9 +100,11 @@ def column_name_suggests_id(column: str) -> bool:
     Avoid broad substring mistakes such as dropping "income" only because it
     contains "id" somewhere in the text.
     """
-    column_lower = str(column).lower().strip()
     normalized = (
-        column_lower.replace("-", "_")
+        str(column)
+        .lower()
+        .strip()
+        .replace("-", "_")
         .replace(" ", "_")
         .replace(".", "_")
     )
@@ -144,10 +156,10 @@ def detect_id_like_columns(features: pd.DataFrame) -> list[str]:
     Important:
     - Name-based ID detection applies to all dtypes.
     - High-uniqueness detection applies only to string/categorical columns.
-      Numeric high-uniqueness columns are often valid continuous features.
     """
-    id_unique_percent_threshold = float(
-        get_config_value("audit.id_unique_percent_threshold", 95)
+    id_unique_percent_threshold = get_float_config_value(
+        "audit.id_unique_percent_threshold",
+        95.0,
     )
 
     id_like_columns: list[str] = []
@@ -155,7 +167,7 @@ def detect_id_like_columns(features: pd.DataFrame) -> list[str]:
     for column in features.columns:
         series = features[column]
         unique_count = int(series.nunique(dropna=True))
-        unique_percent = (unique_count / len(features)) * 100 if len(features) else 0
+        unique_percent = (unique_count / len(features)) * 100 if len(features) else 0.0
 
         name_suggests_id = column_name_suggests_id(str(column))
         uniqueness_suggests_id = (
@@ -164,21 +176,20 @@ def detect_id_like_columns(features: pd.DataFrame) -> list[str]:
         )
 
         if name_suggests_id or uniqueness_suggests_id:
-            id_like_columns.append(column)
+            id_like_columns.append(str(column))
 
     return id_like_columns
 
 
 def detect_high_cardinality_columns(features: pd.DataFrame) -> list[str]:
-    """
-    Detect high-cardinality categorical columns that can explode one-hot encoding.
-    """
-    high_cardinality_threshold = int(
-        get_config_value("audit.high_cardinality_threshold", 50)
+    """Detect high-cardinality categorical columns that can explode one-hot encoding."""
+    high_cardinality_threshold = get_int_config_value(
+        "audit.high_cardinality_threshold",
+        50,
     )
 
     categorical_columns = features.select_dtypes(
-        include=["object", "category", "string"]
+        include=["object", "category", "string"],
     ).columns
 
     high_cardinality_columns: list[str] = []
@@ -187,7 +198,7 @@ def detect_high_cardinality_columns(features: pd.DataFrame) -> list[str]:
         unique_count = int(features[column].nunique(dropna=True))
 
         if unique_count >= high_cardinality_threshold:
-            high_cardinality_columns.append(column)
+            high_cardinality_columns.append(str(column))
 
     return high_cardinality_columns
 
@@ -202,7 +213,7 @@ def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[
 
     drop_id_like = as_bool(get_config_value("preprocessing.drop_id_like_columns", True))
     drop_high_cardinality = as_bool(
-        get_config_value("preprocessing.drop_high_cardinality_columns", False)
+        get_config_value("preprocessing.drop_high_cardinality_columns", False),
     )
 
     id_like_columns = detect_id_like_columns(features) if drop_id_like else []
@@ -214,25 +225,28 @@ def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[
     features_for_model = features.drop(columns=columns_to_drop, errors="ignore")
 
     datetime_columns = features_for_model.select_dtypes(
-        include=["datetime", "datetimetz"]
+        include=["datetime", "datetimetz"],
     ).columns.tolist()
 
-    numeric_columns = features_for_model.select_dtypes(include=["number"]).columns.tolist()
+    numeric_columns = features_for_model.select_dtypes(
+        include=["number"],
+    ).columns.tolist()
 
     categorical_columns = features_for_model.select_dtypes(
-        include=["object", "category", "string", "bool"]
+        include=["object", "category", "string", "bool"],
     ).columns.tolist()
 
     known_columns = set(numeric_columns + categorical_columns + datetime_columns)
-
     unsupported_columns = [
-        column for column in features_for_model.columns if column not in known_columns
+        str(column)
+        for column in features_for_model.columns
+        if column not in known_columns
     ]
 
     return {
-        "numeric_columns": numeric_columns,
-        "categorical_columns": categorical_columns,
-        "datetime_columns": datetime_columns,
+        "numeric_columns": [str(column) for column in numeric_columns],
+        "categorical_columns": [str(column) for column in categorical_columns],
+        "datetime_columns": [str(column) for column in datetime_columns],
         "unsupported_columns": unsupported_columns,
         "id_like_columns_dropped": id_like_columns,
         "high_cardinality_columns_dropped": high_cardinality_columns,
@@ -241,9 +255,7 @@ def get_feature_columns(df: pd.DataFrame, target_column: str) -> dict[str, list[
 
 
 def extract_datetime_features(datetime_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert datetime columns into numeric calendar features.
-    """
+    """Convert datetime columns into numeric calendar features."""
     output = pd.DataFrame(index=datetime_df.index)
 
     for column in datetime_df.columns:
@@ -253,18 +265,16 @@ def extract_datetime_features(datetime_df: pd.DataFrame) -> pd.DataFrame:
         output[f"{column}_month"] = series.dt.month
         output[f"{column}_day"] = series.dt.day
         output[f"{column}_dayofweek"] = series.dt.dayofweek
-        output[f"{column}_is_month_start"] = series.dt.is_month_start.astype("float")
-        output[f"{column}_is_month_end"] = series.dt.is_month_end.astype("float")
+        output[f"{column}_is_month_start"] = series.dt.is_month_start.astype(float)
+        output[f"{column}_is_month_end"] = series.dt.is_month_end.astype(float)
 
     return output
 
 
 def build_numeric_pipeline() -> Pipeline:
-    """
-    Build numeric preprocessing pipeline.
-    """
+    """Build numeric preprocessing pipeline."""
     numeric_strategy = str(
-        get_config_value("preprocessing.numeric_imputer_strategy", "median")
+        get_config_value("preprocessing.numeric_imputer_strategy", "median"),
     )
     scale_numeric = as_bool(get_config_value("preprocessing.scale_numeric", True))
 
@@ -279,11 +289,12 @@ def build_numeric_pipeline() -> Pipeline:
 
 
 def build_categorical_pipeline() -> Pipeline:
-    """
-    Build categorical preprocessing pipeline.
-    """
+    """Build categorical preprocessing pipeline."""
     categorical_strategy = str(
-        get_config_value("preprocessing.categorical_imputer_strategy", "most_frequent")
+        get_config_value(
+            "preprocessing.categorical_imputer_strategy",
+            "most_frequent",
+        ),
     )
 
     return Pipeline(
@@ -296,14 +307,12 @@ def build_categorical_pipeline() -> Pipeline:
                     sparse_output=True,
                 ),
             ),
-        ]
+        ],
     )
 
 
 def build_datetime_pipeline() -> Pipeline:
-    """
-    Build datetime preprocessing pipeline.
-    """
+    """Build datetime preprocessing pipeline."""
     return Pipeline(
         steps=[
             (
@@ -316,7 +325,7 @@ def build_datetime_pipeline() -> Pipeline:
             ),
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler(with_mean=False)),
-        ]
+        ],
     )
 
 
@@ -351,15 +360,17 @@ def build_preprocessing_pipeline(
 
         if categorical_columns:
             transformers.append(
-                ("categorical", build_categorical_pipeline(), categorical_columns)
+                ("categorical", build_categorical_pipeline(), categorical_columns),
             )
 
         if datetime_columns:
-            transformers.append(("datetime", build_datetime_pipeline(), datetime_columns))
+            transformers.append(
+                ("datetime", build_datetime_pipeline(), datetime_columns),
+            )
 
         if not transformers:
             raise PreprocessingError(
-                "No supported feature columns found for preprocessing."
+                "No supported feature columns found for preprocessing.",
             )
 
         preprocessor = ColumnTransformer(
@@ -372,12 +383,12 @@ def build_preprocessing_pipeline(
 
         if unsupported_columns:
             warnings.append(
-                "Unsupported feature columns will be dropped during preprocessing."
+                "Unsupported feature columns will be dropped during preprocessing.",
             )
 
         if columns_dropped_before_modeling:
             warnings.append(
-                "Some ID-like/high-cardinality columns were dropped before modeling."
+                "Some ID-like/high-cardinality columns were dropped before modeling.",
             )
 
         result: dict[str, Any] = {
@@ -392,7 +403,7 @@ def build_preprocessing_pipeline(
             ],
             "columns_dropped_before_modeling": columns_dropped_before_modeling,
             "total_features_before_encoding": int(
-                len(numeric_columns) + len(categorical_columns) + len(datetime_columns)
+                len(numeric_columns) + len(categorical_columns) + len(datetime_columns),
             ),
             "warnings": warnings,
             "message": "Preprocessing pipeline created successfully.",
@@ -403,8 +414,13 @@ def build_preprocessing_pipeline(
 
     except PreprocessingError:
         raise
-
-    except Exception as error:
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        pd.errors.ParserError,
+    ) as error:
         logger.exception("Preprocessing pipeline creation failed.")
         raise PreprocessingError(
             "Preprocessing pipeline creation failed.",
@@ -416,9 +432,7 @@ def clean_target_rows(
     df: pd.DataFrame,
     target_column: str,
 ) -> pd.DataFrame:
-    """
-    Remove rows where target is missing.
-    """
+    """Remove rows where target is missing."""
     before_rows = len(df)
     cleaned_df = df.dropna(subset=[target_column]).copy()
     dropped_rows = before_rows - len(cleaned_df)
@@ -447,7 +461,9 @@ def split_features_target(
 
         validate_preprocessing_inputs(df, target_column)
 
-        working_df = clean_target_rows(df, target_column) if drop_missing_target else df.copy()
+        working_df = (
+            clean_target_rows(df, target_column) if drop_missing_target else df.copy()
+        )
         working_df = clean_infinite_values(working_df)
 
         features = working_df.drop(columns=[target_column])
@@ -463,8 +479,7 @@ def split_features_target(
 
     except PreprocessingError:
         raise
-
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         logger.exception("Feature-target split failed.")
         raise PreprocessingError(
             "Feature-target split failed.",
@@ -476,9 +491,7 @@ def can_use_stratify(
     target: pd.Series,
     test_size: float,
 ) -> bool:
-    """
-    Decide if stratified split is safe.
-    """
+    """Decide if stratified split is safe."""
     class_counts = target.value_counts()
     number_of_classes = int(target.nunique(dropna=True))
 
@@ -486,24 +499,26 @@ def can_use_stratify(
     expected_train_size = len(target) - expected_test_size
 
     if number_of_classes < 2:
-        logger.warning("Stratified split skipped because target has fewer than 2 classes.")
+        logger.warning(
+            "Stratified split skipped because target has fewer than 2 classes."
+        )
         return False
 
     if class_counts.min() < 2:
         logger.warning(
-            "Stratified split skipped because at least one class has less than 2 samples."
+            "Stratified split skipped because at least one class has less than 2 samples.",
         )
         return False
 
     if expected_test_size < number_of_classes:
         logger.warning(
-            "Stratified split skipped because test set is smaller than number of classes."
+            "Stratified split skipped because test set is smaller than number of classes.",
         )
         return False
 
     if expected_train_size < number_of_classes:
         logger.warning(
-            "Stratified split skipped because train set is smaller than number of classes."
+            "Stratified split skipped because train set is smaller than number of classes.",
         )
         return False
 
@@ -517,25 +532,23 @@ def create_train_test_split(
     test_size: float | None = None,
     random_state: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    """
-    Create train-test split.
-    """
+    """Create train-test split."""
     try:
         logger.info("Starting train-test split")
 
-        if problem_type is None or str(problem_type).strip() == "":
+        if problem_type is None or not str(problem_type).strip():
             raise PreprocessingError("Problem type is required.")
 
         test_size_value = float(
             test_size
             if test_size is not None
-            else get_config_value("modeling.test_size", 0.2)
+            else get_config_value("modeling.test_size", 0.2),
         )
 
         random_state_value = int(
             random_state
             if random_state is not None
-            else get_config_value("modeling.random_state", 42)
+            else get_config_value("modeling.random_state", 42),
         )
 
         if not 0 < test_size_value < 1:
@@ -565,13 +578,11 @@ def create_train_test_split(
         )
 
         logger.info("Train-test split completed successfully")
-
         return train_features, test_features, train_target, test_target
 
     except PreprocessingError:
         raise
-
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         logger.exception("Train-test split failed.")
         raise PreprocessingError(
             "Train-test split failed.",
@@ -588,7 +599,7 @@ if __name__ == "__main__":
             "StudyHours": [2.5, 3.0, np.inf, 4.0, 5.0, 2.0, 3.5, 4.5, 1.5, 5.5],
             "ExamDate": pd.date_range("2024-01-01", periods=10),
             "Grade": ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"],
-        }
+        },
     )
 
     pipeline_info = build_preprocessing_pipeline(
@@ -606,14 +617,16 @@ if __name__ == "__main__":
             ],
             "warnings": pipeline_info["warnings"],
             "message": pipeline_info["message"],
-        }
+        },
     )
 
-    X_train, X_test, y_train, y_test = create_train_test_split(
+    x_train, x_test, y_train, y_test = create_train_test_split(
         df=sample_df,
         target_column="Grade",
         problem_type="binary_classification",
     )
 
-    print("X_train shape:", X_train.shape)
-    print("X_test shape:", X_test.shape)
+    print("X_train shape:", x_train.shape)
+    print("X_test shape:", x_test.shape)
+    print("y_train shape:", y_train.shape)
+    print("y_test shape:", y_test.shape)

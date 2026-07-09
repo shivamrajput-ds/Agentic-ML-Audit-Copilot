@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TypedDict
+from typing import Any, TypedDict
 
 import pandas as pd
 from langgraph.graph import END, StateGraph
@@ -24,8 +25,9 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import AgentWorkflowError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
+
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
 
 
 class AuditState(TypedDict, total=False):
@@ -73,41 +75,44 @@ NodeFn = Callable[[AuditState], AuditState]
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
 def now_seconds() -> float:
+    """Return monotonic timestamp for runtime measurement."""
     return time.perf_counter()
 
 
 def get_optional_config(path: str, default: bool) -> bool:
+    """Read optional boolean config safely."""
     return as_bool(get_config_value(path, default))
 
 
 def get_int_config(path: str, default: int) -> int:
+    """Read integer config with safe fallback."""
     try:
         return int(get_config_value(path, default))
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
 def get_float_config(path: str, default: float) -> float:
+    """Read float config with safe fallback."""
     try:
         return float(get_config_value(path, default))
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
 def append_warning(state: AuditState, warning: str) -> AuditState:
+    """Append workflow warning to state."""
     warnings = list(state.get("warnings", []))
     warnings.append(warning)
     state["warnings"] = warnings
@@ -120,6 +125,7 @@ def append_error(
     error: Exception,
     fatal: bool = True,
 ) -> AuditState:
+    """Append workflow error to state."""
     errors = list(state.get("errors", []))
     errors.append(
         {
@@ -127,7 +133,7 @@ def append_error(
             "fatal": fatal,
             "error_type": error.__class__.__name__,
             "message": str(error),
-        }
+        },
     )
     state["errors"] = errors
     return state
@@ -138,13 +144,14 @@ def append_optional_failure(
     stage: str,
     error: Exception,
 ) -> AuditState:
+    """Append optional module failure to state."""
     failures = list(state.get("optional_failures", []))
     failures.append(
         {
             "stage": stage,
             "error_type": error.__class__.__name__,
             "message": str(error),
-        }
+        },
     )
     state["optional_failures"] = failures
     return state
@@ -154,7 +161,6 @@ def timed_node(name: str, func: NodeFn) -> NodeFn:
     """
     Wrap a LangGraph node with timing, retry, and logging.
 
-    Heavy ML nodes can fail because of transient IO, MLflow, or LLM issues.
     Optional nodes handle their own fallback. Required nodes use this small retry
     guard before the workflow is marked failed.
     """
@@ -162,7 +168,10 @@ def timed_node(name: str, func: NodeFn) -> NodeFn:
     def wrapper(state: AuditState) -> AuditState:
         start = now_seconds()
         max_retries = max(0, get_int_config("workflow.max_retries", 0))
-        retry_sleep = max(0.0, get_float_config("workflow.retry_sleep_seconds", 0.5))
+        retry_sleep = max(
+            0.0,
+            get_float_config("workflow.retry_sleep_seconds", 0.5),
+        )
         attempts = max_retries + 1
         last_error: Exception | None = None
 
@@ -185,7 +194,14 @@ def timed_node(name: str, func: NodeFn) -> NodeFn:
                 logger.info("Workflow node completed: %s in %.4fs", name, elapsed)
                 return updated_state
 
-            except Exception as error:
+            except (
+                AgentWorkflowError,
+                KeyError,
+                TypeError,
+                ValueError,
+                RuntimeError,
+                OSError,
+            ) as error:
                 last_error = error
                 logger.warning(
                     "Workflow node attempt failed: %s attempt=%s/%s error=%s",
@@ -198,7 +214,9 @@ def timed_node(name: str, func: NodeFn) -> NodeFn:
                 if attempt < attempts:
                     time.sleep(retry_sleep * attempt)
 
-        assert last_error is not None
+        if last_error is None:
+            last_error = AgentWorkflowError(f"Workflow node failed: {name}")
+
         append_error(state, name, last_error, fatal=True)
         logger.exception("Workflow node failed permanently: %s", name)
         raise last_error
@@ -207,13 +225,11 @@ def timed_node(name: str, func: NodeFn) -> NodeFn:
 
 
 def initialize_state(dataset_path: str | Path, target_column: str) -> AuditState:
-    """
-    Create initial workflow state.
-    """
-    if dataset_path is None or str(dataset_path).strip() == "":
+    """Create initial workflow state."""
+    if dataset_path is None or not str(dataset_path).strip():
         raise AgentWorkflowError("Dataset path is required.")
 
-    if target_column is None or str(target_column).strip() == "":
+    if target_column is None or not str(target_column).strip():
         raise AgentWorkflowError("Target column is required.")
 
     return {
@@ -228,28 +244,31 @@ def initialize_state(dataset_path: str | Path, target_column: str) -> AuditState
 
 
 def load_dataset_node(state: AuditState) -> AuditState:
+    """Load dataset into workflow state."""
     dataset_path = state["dataset_path"]
     state["df"] = load_dataset(dataset_path)
     return state
 
 
 def profile_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Run dataset profiling."""
+    dataframe = state["df"]
     target_column = state["target_column"]
 
     state["profile"] = profile_dataset(
-        df=df,
+        df=dataframe,
         target_column=target_column,
     )
     return state
 
 
 def problem_detection_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Detect ML problem type."""
+    dataframe = state["df"]
     target_column = state["target_column"]
 
     problem_info = detect_problem_type(
-        df=df,
+        df=dataframe,
         target_column=target_column,
     )
 
@@ -259,29 +278,32 @@ def problem_detection_node(state: AuditState) -> AuditState:
 
 
 def data_quality_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Run data quality audit."""
+    dataframe = state["df"]
     target_column = state["target_column"]
 
     state["data_quality"] = run_data_quality_audit(
-        df=df,
+        df=dataframe,
         target_column=target_column,
     )
     return state
 
 
 def leakage_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Run possible leakage-risk checks."""
+    dataframe = state["df"]
     target_column = state["target_column"]
 
     state["leakage"] = run_leakage_check(
-        df=df,
+        df=dataframe,
         target_column=target_column,
     )
     return state
 
 
 def imbalance_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Run class imbalance detection for classification problems."""
+    dataframe = state["df"]
     target_column = state["target_column"]
     problem_type = state["problem_type"]
 
@@ -295,7 +317,7 @@ def imbalance_node(state: AuditState) -> AuditState:
         return state
 
     state["class_imbalance"] = detect_class_imbalance(
-        df=df,
+        df=dataframe,
         target_column=target_column,
         problem_type=problem_type,
     )
@@ -303,8 +325,12 @@ def imbalance_node(state: AuditState) -> AuditState:
 
 
 def metric_node(state: AuditState) -> AuditState:
+    """Recommend metrics based on problem type and imbalance."""
     problem_type = state["problem_type"]
     class_imbalance = state.get("class_imbalance", {})
+
+    if not isinstance(class_imbalance, dict):
+        class_imbalance = {}
 
     imbalance_severity = (
         class_imbalance.get("imbalance_severity")
@@ -320,12 +346,13 @@ def metric_node(state: AuditState) -> AuditState:
 
 
 def baseline_node(state: AuditState) -> AuditState:
-    df = state["df"]
+    """Train and evaluate baseline models."""
+    dataframe = state["df"]
     target_column = state["target_column"]
     problem_type = state["problem_type"]
 
     state["baseline_results"] = train_baseline_models(
-        df=df,
+        df=dataframe,
         target_column=target_column,
         problem_type=problem_type,
     )
@@ -354,7 +381,14 @@ def mlflow_node(state: AuditState) -> AuditState:
             sample_input=sample_features,
         )
 
-    except Exception as error:
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.warning("MLflow tracking failed but workflow continued: %s", error)
         append_optional_failure(state, "mlflow", error)
         state["mlflow_results"] = {
@@ -389,7 +423,14 @@ def explainability_node(state: AuditState) -> AuditState:
             sample_features=sample_features,
         )
 
-    except Exception as error:
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.warning("Explainability failed but workflow continued: %s", error)
         append_optional_failure(state, "explainability", error)
         state["explainability"] = {
@@ -406,8 +447,7 @@ def report_node(state: AuditState) -> AuditState:
     """
     Optional LLM report node with deterministic fallback.
 
-    This imports report functions lazily to avoid hard failure when names differ
-    during active refactors.
+    Report generation failure should not break deterministic audit results.
     """
     if not get_optional_config("llm.enabled", True):
         state["audit_report"] = build_deterministic_fallback_report(state)
@@ -420,7 +460,15 @@ def report_node(state: AuditState) -> AuditState:
         report_input = build_report_safe_results(state)
         state["audit_report"] = build_audit_report(report_input)
 
-    except Exception as error:
+    except (
+        ImportError,
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.warning("LLM report failed. Using deterministic fallback: %s", error)
         append_optional_failure(state, "llm_report", error)
         state["audit_report"] = build_deterministic_fallback_report(state)
@@ -437,7 +485,7 @@ def save_report_safely(report: str) -> dict[str, Any]:
     """
     try:
         default_report_path = str(
-            get_config_value("reports.default_report_path", "reports/audit_report.md")
+            get_config_value("reports.default_report_path", "reports/audit_report.md"),
         )
 
         try:
@@ -457,7 +505,7 @@ def save_report_safely(report: str) -> dict[str, Any]:
                 "message": "Audit report saved successfully.",
             }
 
-    except Exception as error:
+    except OSError as error:
         logger.warning("Audit report saving failed: %s", error)
         return {
             "report_path": None,
@@ -467,9 +515,7 @@ def save_report_safely(report: str) -> dict[str, Any]:
 
 
 def validate_required_state(state: AuditState) -> None:
-    """
-    Validate that required workflow outputs exist before final summary.
-    """
+    """Validate that required workflow outputs exist before final summary."""
     required_keys = [
         "profile",
         "problem_detection",
@@ -485,14 +531,12 @@ def validate_required_state(state: AuditState) -> None:
 
     if missing:
         raise AgentWorkflowError(
-            f"Workflow completed with missing required state keys: {missing}"
+            f"Workflow completed with missing required state keys: {missing}",
         )
 
 
 def collect_stage_status(state: AuditState) -> list[dict[str, Any]]:
-    """
-    Build UI-friendly stage status records.
-    """
+    """Build UI-friendly stage status records."""
     stage_keys = {
         "load_dataset": "df",
         "profile": "profile",
@@ -530,17 +574,16 @@ def collect_stage_status(state: AuditState) -> list[dict[str, Any]]:
                 "stage": stage,
                 "status": status,
                 "runtime_seconds": timings.get(stage),
-            }
+            },
         )
 
     return stages
 
 
 def finalization_node(state: AuditState) -> AuditState:
-    """
-    Add audit score, HITL summary, execution metadata, and cleanup runtime state.
-    """
+    """Add score, HITL summary, execution metadata, and cleanup runtime state."""
     validate_required_state(state)
+
     state["completed_at"] = now_seconds()
     started_at = float(state.get("started_at", state["completed_at"]))
     state["runtime_seconds"] = round(state["completed_at"] - started_at, 4)
@@ -557,11 +600,7 @@ def calculate_audit_score(state: AuditState) -> dict[str, Any]:
     """
     Calculate portfolio-friendly audit readiness score.
 
-    This is not a scientific score. It is a practical triage score:
-    - data quality score from data_quality module
-    - leakage severity penalty
-    - imbalance penalty
-    - optional failure penalty
+    This is not a scientific score. It is a practical triage score.
     """
     score = 100.0
     penalties: list[dict[str, Any]] = []
@@ -574,13 +613,14 @@ def calculate_audit_score(state: AuditState) -> dict[str, Any]:
                 "name": name,
                 "penalty": round(float(value), 2),
                 "reason": reason,
-            }
+            },
         )
 
     data_quality = state.get("data_quality", {})
     quality_score = data_quality.get("quality_score", {})
 
-    dq_score = quality_score.get("score")
+    dq_score = quality_score.get("score") if isinstance(quality_score, dict) else None
+
     if isinstance(dq_score, (int, float)):
         data_quality_penalty = max(0.0, 100.0 - float(dq_score)) * 0.35
         if data_quality_penalty > 0:
@@ -604,8 +644,9 @@ def calculate_audit_score(state: AuditState) -> dict[str, Any]:
         penalty("leakage", 5, "Low leakage-risk signals found.")
 
     imbalance = state.get("class_imbalance", {})
-    if imbalance.get("is_applicable", False):
+    if isinstance(imbalance, dict) and imbalance.get("is_applicable", False):
         severity = str(imbalance.get("imbalance_severity", "low")).lower()
+
         if severity == "severe":
             penalty("class_imbalance", 12, "Severe class imbalance detected.")
         elif severity == "high":
@@ -652,34 +693,40 @@ def build_human_review_summary(state: AuditState) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
 
     leakage = state.get("leakage", {})
-    for risk in leakage.get("all_risks", []) or []:
-        items.append(
-            {
-                "category": "possible_leakage",
-                "severity": risk.get("risk_level", "review"),
-                "column": risk.get("column"),
-                "reason": risk.get("reason"),
-                "suggested_decision": "review_prediction_time_availability",
-                "status": "pending_human_review",
-            }
-        )
+    if isinstance(leakage, dict):
+        for risk in leakage.get("all_risks", []) or []:
+            if not isinstance(risk, dict):
+                continue
+
+            items.append(
+                {
+                    "category": "possible_leakage",
+                    "severity": risk.get("risk_level", "review"),
+                    "column": risk.get("column"),
+                    "reason": risk.get("reason"),
+                    "suggested_decision": "review_prediction_time_availability",
+                    "status": "pending_human_review",
+                },
+            )
 
     data_quality = state.get("data_quality", {})
-    for action in data_quality.get("recommended_actions", []) or []:
-        items.append(
-            {
-                "category": "data_quality",
-                "severity": "review",
-                "column": None,
-                "reason": action,
-                "suggested_decision": "accept_or_plan_fix",
-                "status": "pending_human_review",
-            }
-        )
+    if isinstance(data_quality, dict):
+        for action in data_quality.get("recommended_actions", []) or []:
+            items.append(
+                {
+                    "category": "data_quality",
+                    "severity": "review",
+                    "column": None,
+                    "reason": action,
+                    "suggested_decision": "accept_or_plan_fix",
+                    "status": "pending_human_review",
+                },
+            )
 
     problem_detection = state.get("problem_detection", {})
-    if problem_detection.get("needs_human_review") or problem_detection.get(
-        "requires_human_review"
+    if isinstance(problem_detection, dict) and (
+        problem_detection.get("needs_human_review")
+        or problem_detection.get("requires_human_review")
     ):
         items.append(
             {
@@ -692,11 +739,16 @@ def build_human_review_summary(state: AuditState) -> dict[str, Any]:
                 ),
                 "suggested_decision": "confirm_problem_type",
                 "status": "pending_human_review",
-            }
+            },
         )
 
     audit_score = state.get("audit_score", {})
-    requires_review = bool(items) or audit_score.get("readiness") != "good_starting_point"
+    readiness = (
+        audit_score.get("readiness")
+        if isinstance(audit_score, dict)
+        else "needs_review"
+    )
+    requires_review = bool(items) or readiness != "good_starting_point"
 
     return {
         "human_in_the_loop": True,
@@ -717,11 +769,10 @@ def build_human_review_summary(state: AuditState) -> dict[str, Any]:
 
 
 def build_execution_summary(state: AuditState) -> dict[str, Any]:
-    """
-    Build compact execution summary for UI/API.
-    """
+    """Build compact execution summary for UI/API."""
     optional_failures = state.get("optional_failures", [])
     errors = state.get("errors", [])
+    stage_status = collect_stage_status(state)
 
     return {
         "dataset_path": state.get("dataset_path"),
@@ -729,26 +780,49 @@ def build_execution_summary(state: AuditState) -> dict[str, Any]:
         "problem_type": state.get("problem_type"),
         "runtime_seconds": state.get("runtime_seconds"),
         "node_timings": state.get("node_timings", {}),
-        "fatal_errors_count": len([e for e in errors if e.get("fatal")]),
+        "fatal_errors_count": len(
+            [error for error in errors if error.get("fatal")],
+        ),
         "optional_failures_count": len(optional_failures),
         "optional_failures": optional_failures,
         "warnings": state.get("warnings", []),
-        "stage_status": collect_stage_status(state),
-        "completed_stages_count": len([
-            stage for stage in collect_stage_status(state) if stage.get("status") == "completed"
-        ]),
+        "stage_status": stage_status,
+        "completed_stages_count": len(
+            [stage for stage in stage_status if stage.get("status") == "completed"],
+        ),
     }
 
 
 def build_deterministic_fallback_report(state: AuditState) -> str:
-    """
-    Generate a deterministic fallback report when LLM report fails/disabled.
-    """
+    """Generate a deterministic fallback report when LLM report fails/disabled."""
     audit_score = calculate_audit_score(state)
-    best_model = state.get("baseline_results", {}).get("best_model", {})
+
+    baseline_results = state.get("baseline_results", {})
+    best_model = (
+        baseline_results.get("best_model", {})
+        if isinstance(baseline_results, dict)
+        else {}
+    )
+
     leakage = state.get("leakage", {})
     data_quality = state.get("data_quality", {})
     metric = state.get("metric_recommendation", {})
+
+    if not isinstance(best_model, dict):
+        best_model = {}
+
+    if not isinstance(leakage, dict):
+        leakage = {}
+
+    if not isinstance(data_quality, dict):
+        data_quality = {}
+
+    if not isinstance(metric, dict):
+        metric = {}
+
+    quality_score = data_quality.get("quality_score", {})
+    if not isinstance(quality_score, dict):
+        quality_score = {}
 
     lines = [
         "# Agentic ML Audit Report",
@@ -760,7 +834,7 @@ def build_deterministic_fallback_report(state: AuditState) -> str:
         f"- Audit score: `{audit_score.get('score')}`",
         "",
         "## Data Quality",
-        f"- Quality score: `{data_quality.get('quality_score', {}).get('score', 'N/A')}`",
+        f"- Quality score: `{quality_score.get('score', 'N/A')}`",
         f"- Duplicate rows: `{data_quality.get('duplicate_rows', 'N/A')}`",
         "",
         "## Leakage Review",
@@ -776,7 +850,10 @@ def build_deterministic_fallback_report(state: AuditState) -> str:
         f"- Score: `{best_model.get('score', 'N/A')}`",
         "",
         "## Human Review",
-        "This system flags possible risks. A human ML reviewer should confirm whether flagged columns are valid at prediction time.",
+        (
+            "This system flags possible risks. A human ML reviewer should confirm "
+            "whether flagged columns are valid at prediction time."
+        ),
     ]
 
     return "\n".join(lines)
@@ -802,7 +879,7 @@ def build_report_safe_results(state: AuditState) -> dict[str, Any]:
     return cleaned
 
 
-def build_audit_graph(include_report: bool = True):
+def build_audit_graph(include_report: bool = True) -> Any:
     """
     Build compiled LangGraph workflow.
 
@@ -811,43 +888,46 @@ def build_audit_graph(include_report: bool = True):
     """
     graph = StateGraph(AuditState)
 
-    graph.add_node("load_dataset", timed_node("load_dataset", load_dataset_node))
-    graph.add_node("profile", timed_node("profile", profile_node))
+    graph.add_node("node_load_dataset", timed_node("load_dataset", load_dataset_node))
+    graph.add_node("node_profile", timed_node("profile", profile_node))
     graph.add_node(
-        "problem_detection",
+        "node_problem_detection",
         timed_node("problem_detection", problem_detection_node),
     )
-    graph.add_node("data_quality", timed_node("data_quality", data_quality_node))
-    graph.add_node("leakage", timed_node("leakage", leakage_node))
-    graph.add_node("imbalance", timed_node("imbalance", imbalance_node))
-    graph.add_node("metrics", timed_node("metrics", metric_node))
-    graph.add_node("baseline", timed_node("baseline", baseline_node))
-    graph.add_node("mlflow", timed_node("mlflow", mlflow_node))
-    graph.add_node("explainability", timed_node("explainability", explainability_node))
+    graph.add_node("node_data_quality", timed_node("data_quality", data_quality_node))
+    graph.add_node("node_leakage", timed_node("leakage", leakage_node))
+    graph.add_node("node_imbalance", timed_node("imbalance", imbalance_node))
+    graph.add_node("node_metrics", timed_node("metrics", metric_node))
+    graph.add_node("node_baseline", timed_node("baseline", baseline_node))
+    graph.add_node("node_mlflow", timed_node("mlflow", mlflow_node))
+    graph.add_node(
+        "node_explainability",
+        timed_node("explainability", explainability_node),
+    )
 
     if include_report:
-        graph.add_node("report", timed_node("report", report_node))
+        graph.add_node("node_report", timed_node("report", report_node))
 
-    graph.add_node("finalize", timed_node("finalize", finalization_node))
+    graph.add_node("node_finalize", timed_node("finalize", finalization_node))
 
-    graph.set_entry_point("load_dataset")
-    graph.add_edge("load_dataset", "profile")
-    graph.add_edge("profile", "problem_detection")
-    graph.add_edge("problem_detection", "data_quality")
-    graph.add_edge("data_quality", "leakage")
-    graph.add_edge("leakage", "imbalance")
-    graph.add_edge("imbalance", "metrics")
-    graph.add_edge("metrics", "baseline")
-    graph.add_edge("baseline", "mlflow")
-    graph.add_edge("mlflow", "explainability")
+    graph.set_entry_point("node_load_dataset")
+    graph.add_edge("node_load_dataset", "node_profile")
+    graph.add_edge("node_profile", "node_problem_detection")
+    graph.add_edge("node_problem_detection", "node_data_quality")
+    graph.add_edge("node_data_quality", "node_leakage")
+    graph.add_edge("node_leakage", "node_imbalance")
+    graph.add_edge("node_imbalance", "node_metrics")
+    graph.add_edge("node_metrics", "node_baseline")
+    graph.add_edge("node_baseline", "node_mlflow")
+    graph.add_edge("node_mlflow", "node_explainability")
 
     if include_report:
-        graph.add_edge("explainability", "report")
-        graph.add_edge("report", "finalize")
+        graph.add_edge("node_explainability", "node_report")
+        graph.add_edge("node_report", "node_finalize")
     else:
-        graph.add_edge("explainability", "finalize")
+        graph.add_edge("node_explainability", "node_finalize")
 
-    graph.add_edge("finalize", END)
+    graph.add_edge("node_finalize", END)
 
     return graph.compile()
 
@@ -859,15 +939,8 @@ def run_audit_workflow(
     """
     Run full production-inspired ML audit workflow.
 
-    Includes:
-    - LangGraph orchestration
-    - deterministic ML checks
-    - baseline models
-    - optional MLflow
-    - optional explainability
-    - optional LLM report with deterministic fallback
-    - audit score
-    - Human-in-the-loop review summary
+    Includes deterministic ML checks, baseline models, optional MLflow,
+    optional explainability, optional LLM report, audit score, and HITL summary.
     """
     try:
         logger.info("Starting full audit workflow")
@@ -883,8 +956,14 @@ def run_audit_workflow(
 
     except AgentWorkflowError:
         raise
-
-    except Exception as error:
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.exception("Audit workflow failed.")
         raise AgentWorkflowError(
             "Audit workflow failed.",
@@ -899,8 +978,8 @@ def run_audit_workflow_without_report(
     """
     Lightweight workflow variant useful for tests and offline smoke checks.
 
-    Runs deterministic checks, baseline modeling, MLflow/explainability optional
-    nodes, audit scoring, and HITL summary, but skips LLM report generation.
+    Runs deterministic checks, baseline modeling, optional nodes, audit scoring,
+    and HITL summary, but skips LLM report generation.
     """
     try:
         logger.info("Starting audit workflow without report")
@@ -919,7 +998,16 @@ def run_audit_workflow_without_report(
         logger.info("Audit workflow without report completed successfully")
         return result
 
-    except Exception as error:
+    except AgentWorkflowError:
+        raise
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.exception("Audit workflow without report failed.")
         raise AgentWorkflowError(
             "Audit workflow without report failed.",
@@ -937,9 +1025,7 @@ if __name__ == "__main__":
     )
 
     printable_output = {
-        key: value
-        for key, value in output.items()
-        if key != "audit_report"
+        key: value for key, value in output.items() if key != "audit_report"
     }
 
     print(printable_output)

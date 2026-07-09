@@ -15,7 +15,7 @@ venv/
 env/
 ENV/
 
-# Local secrets
+# Secrets
 .env
 .env.*
 !.env.example
@@ -40,7 +40,7 @@ artifacts/
 data/uploads/
 mlruns/
 
-# Large/local data
+# Local/large data
 data/raw/
 data/processed/
 data/interim/
@@ -53,11 +53,11 @@ data/interim/
 .ipynb_checkpoints/
 *.ipynb
 
-# Docker
-docker-compose.override.yml
-
-# Tests/cache
+# Build outputs
 .tox/
 dist/
 build/
 *.egg-info/
+
+# Docker local override
+docker-compose.override.yml

@@ -22,28 +22,46 @@ from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 
-from src.audit.preprocessing import build_preprocessing_pipeline, create_train_test_split
+from src.audit.preprocessing import (
+    build_preprocessing_pipeline,
+    create_train_test_split,
+)
 from src.utils.config import get_config_value
 from src.utils.exceptions import ModelTrainingError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
+SUPPORTED_PROBLEM_TYPES = CLASSIFICATION_TYPES | {"regression"}
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
+
+
+def get_int_config(path: str, default: int) -> int:
+    """Read integer config values with safe fallback."""
+    try:
+        return int(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_float_config(path: str, default: float) -> float:
+    """Read float config values with safe fallback."""
+    try:
+        return float(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def train_baseline_models(
@@ -67,12 +85,12 @@ def train_baseline_models(
         validate_inputs(df, target_column, problem_type)
         normalized_problem_type = problem_type.lower().strip()
 
-        random_state = int(get_config_value("modeling.random_state", 42))
-        test_size = float(get_config_value("modeling.test_size", 0.2))
+        random_state = get_int_config("modeling.random_state", 42)
+        test_size = get_float_config("modeling.test_size", 0.2)
         enable_cross_validation = as_bool(
-            get_config_value("modeling.enable_cross_validation", False)
+            get_config_value("modeling.enable_cross_validation", False),
         )
-        requested_cv_folds = int(get_config_value("modeling.cv_folds", 5))
+        requested_cv_folds = get_int_config("modeling.cv_folds", 5)
 
         if normalized_problem_type == "regression":
             validate_regression_target(df[target_column])
@@ -81,10 +99,9 @@ def train_baseline_models(
             df=df,
             target_column=target_column,
         )
-
         preprocessor = preprocessing_info["preprocessor"]
 
-        X_train, X_test, y_train, y_test = create_train_test_split(
+        x_train, x_test, y_train, y_test = create_train_test_split(
             df=df,
             target_column=target_column,
             problem_type=normalized_problem_type,
@@ -121,7 +138,6 @@ def train_baseline_models(
             logger.warning(cv_warning)
 
         models = get_baseline_models(normalized_problem_type, random_state)
-
         results: dict[str, Any] = {}
 
         for model_name, model in models.items():
@@ -131,39 +147,36 @@ def train_baseline_models(
                 steps=[
                     ("preprocessor", preprocessor),
                     ("model", model),
-                ]
+                ],
             )
 
-            pipeline.fit(X_train, y_train_model)
-            y_pred = np.asarray(pipeline.predict(X_test))
+            pipeline.fit(x_train, y_train_model)
+            y_pred = np.asarray(pipeline.predict(x_test))
 
             if normalized_problem_type in CLASSIFICATION_TYPES:
                 metrics = evaluate_classification(
                     model=pipeline,
-                    X_test=X_test,
+                    x_test=x_test,
                     y_test=y_test_model,
                     y_pred=y_pred,
                     problem_type=normalized_problem_type,
                 )
-
                 confusion = confusion_matrix(y_test_model, y_pred).tolist()
-
             elif normalized_problem_type == "regression":
                 metrics = evaluate_regression(
                     y_test=y_test_model,
                     y_pred=y_pred,
                 )
                 confusion = None
-
             else:
                 raise ModelTrainingError(
-                    f"Unsupported problem type: {normalized_problem_type}"
+                    f"Unsupported problem type: {normalized_problem_type}",
                 )
 
             if enable_cross_validation and safe_cv is not None:
                 cv_results = run_cross_validation(
                     pipeline=pipeline,
-                    X=X_train,
+                    x=x_train,
                     y=y_train_model,
                     problem_type=normalized_problem_type,
                     cv=safe_cv,
@@ -195,7 +208,9 @@ def train_baseline_models(
             "best_model": best_model,
             "preprocessing_summary": {
                 "numeric_columns": preprocessing_info.get("numeric_columns", []),
-                "categorical_columns": preprocessing_info.get("categorical_columns", []),
+                "categorical_columns": preprocessing_info.get(
+                    "categorical_columns", []
+                ),
                 "datetime_columns": preprocessing_info.get("datetime_columns", []),
                 "unsupported_columns_dropped": preprocessing_info.get(
                     "unsupported_columns_dropped",
@@ -211,17 +226,19 @@ def train_baseline_models(
                 "test_size": test_size,
                 "random_state": random_state,
                 "cross_validation_enabled": bool(
-                    enable_cross_validation and safe_cv is not None
+                    enable_cross_validation and safe_cv is not None,
                 ),
                 "requested_cv_folds": requested_cv_folds,
-                "actual_cv_folds": getattr(safe_cv, "n_splits", None)
-                if enable_cross_validation and safe_cv is not None
-                else None,
+                "actual_cv_folds": (
+                    getattr(safe_cv, "n_splits", None)
+                    if enable_cross_validation and safe_cv is not None
+                    else None
+                ),
                 "cv_warning": cv_warning,
                 "class_labels": class_labels,
                 "label_encoder_used": label_encoder is not None,
-                "train_shape": tuple(X_train.shape),
-                "test_shape": tuple(X_test.shape),
+                "train_shape": tuple(x_train.shape),
+                "test_shape": tuple(x_test.shape),
                 "confusion_matrices": {
                     model_name: model_result["confusion_matrix"]
                     for model_name, model_result in results.items()
@@ -229,10 +246,10 @@ def train_baseline_models(
                 },
             },
             "runtime_objects": {
-                "sample_features": X_test.copy(),
+                "sample_features": x_test.copy(),
                 "sample_target": y_test.copy(),
-                "train_features": X_train.copy(),
-                "test_features": X_test.copy(),
+                "train_features": x_train.copy(),
+                "test_features": x_test.copy(),
                 "label_encoder": label_encoder,
             },
             "message": "Baseline model training completed successfully.",
@@ -244,8 +261,13 @@ def train_baseline_models(
 
     except ModelTrainingError:
         raise
-
-    except Exception as error:
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+    ) as error:
         logger.exception("Baseline model training failed.")
         raise ModelTrainingError(
             "Baseline model training failed.",
@@ -254,24 +276,22 @@ def train_baseline_models(
 
 
 def validate_inputs(df: pd.DataFrame, target_column: str, problem_type: str) -> None:
+    """Validate baseline-model training inputs."""
     if df is None or df.empty:
         raise ModelTrainingError("Input dataframe is empty.")
 
-    if target_column is None or str(target_column).strip() == "":
+    if target_column is None or not str(target_column).strip():
         raise ModelTrainingError("Target column is required.")
 
     if target_column not in df.columns:
         raise ModelTrainingError(f"Target column not found: {target_column}")
 
-    if problem_type is None or str(problem_type).strip() == "":
+    if problem_type is None or not str(problem_type).strip():
         raise ModelTrainingError("Problem type is required.")
 
     normalized_problem_type = problem_type.lower().strip()
 
-    if (
-        normalized_problem_type not in CLASSIFICATION_TYPES
-        and normalized_problem_type != "regression"
-    ):
+    if normalized_problem_type not in SUPPORTED_PROBLEM_TYPES:
         raise ModelTrainingError(f"Unsupported problem type: {normalized_problem_type}")
 
     if df[target_column].dropna().nunique() < 2:
@@ -279,21 +299,17 @@ def validate_inputs(df: pd.DataFrame, target_column: str, problem_type: str) -> 
 
 
 def validate_regression_target(target: pd.Series) -> None:
+    """Validate that regression target is numeric."""
     if not pd.api.types.is_numeric_dtype(target):
         raise ModelTrainingError("Regression target must be numeric.")
 
 
 def get_baseline_models(problem_type: str, random_state: int) -> dict[str, Any]:
-    """
-    Return small, reliable baseline models.
-    """
-    parallel_jobs = int(get_config_value("performance.parallel_jobs", -1))
-
-    rf_estimators = int(get_config_value("modeling.random_forest_estimators", 200))
-    rf_min_samples_leaf = int(
-        get_config_value("modeling.random_forest_min_samples_leaf", 2)
-    )
-    logistic_max_iter = int(get_config_value("modeling.logistic_max_iter", 1000))
+    """Return small, reliable baseline models."""
+    parallel_jobs = get_int_config("performance.parallel_jobs", -1)
+    rf_estimators = get_int_config("modeling.random_forest_estimators", 200)
+    rf_min_samples_leaf = get_int_config("modeling.random_forest_min_samples_leaf", 2)
+    logistic_max_iter = get_int_config("modeling.logistic_max_iter", 1_000)
 
     if problem_type in CLASSIFICATION_TYPES:
         return {
@@ -327,14 +343,12 @@ def get_baseline_models(problem_type: str, random_state: int) -> dict[str, Any]:
 
 def evaluate_classification(
     model: Pipeline,
-    X_test: pd.DataFrame,
+    x_test: pd.DataFrame,
     y_test: np.ndarray,
     y_pred: np.ndarray,
     problem_type: str,
 ) -> dict[str, float]:
-    """
-    Evaluate classification baseline.
-    """
+    """Evaluate classification baseline."""
     metrics = {
         "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
         "balanced_accuracy": round(float(balanced_accuracy_score(y_test, y_pred)), 4),
@@ -372,7 +386,7 @@ def evaluate_classification(
 
     try:
         if hasattr(model, "predict_proba"):
-            y_proba = model.predict_proba(X_test)
+            y_proba = model.predict_proba(x_test)
 
             if problem_type == "binary_classification" and y_proba.shape[1] == 2:
                 metrics["roc_auc"] = round(
@@ -388,21 +402,19 @@ def evaluate_classification(
                             y_proba,
                             multi_class="ovr",
                             average="weighted",
-                        )
+                        ),
                     ),
                     4,
                 )
 
-    except Exception as error:
+    except (AttributeError, IndexError, TypeError, ValueError) as error:
         logger.warning("Probability-based metrics skipped: %s", error)
 
     return metrics
 
 
 def evaluate_regression(y_test: Any, y_pred: np.ndarray) -> dict[str, float]:
-    """
-    Evaluate regression baseline.
-    """
+    """Evaluate regression baseline."""
     y_test_array = np.asarray(y_test, dtype=float)
     y_pred_array = np.asarray(y_pred, dtype=float)
 
@@ -424,14 +436,14 @@ def evaluate_regression(y_test: Any, y_pred: np.ndarray) -> dict[str, float]:
                 np.mean(
                     np.abs(
                         (y_test_array[non_zero_mask] - y_pred_array[non_zero_mask])
-                        / y_test_array[non_zero_mask]
-                    )
+                        / y_test_array[non_zero_mask],
+                    ),
                 )
                 * 100
             )
             metrics["mape"] = round(float(mape), 4)
 
-    except Exception as error:
+    except (FloatingPointError, TypeError, ValueError) as error:
         logger.warning("MAPE skipped: %s", error)
 
     return metrics
@@ -446,14 +458,22 @@ def get_safe_cv_splitter(
     """
     Build a safe CV splitter.
 
-    Classification folds are capped by minority-class count to avoid
-    invalid or unstable StratifiedKFold splits.
+    Classification folds are capped by minority-class count to avoid invalid or
+    unstable StratifiedKFold splits.
     """
     if requested_folds < 2:
         return None
 
+    y_array = np.asarray(y)
+
+    if len(y_array) < requested_folds:
+        requested_folds = len(y_array)
+
+    if requested_folds < 2:
+        return None
+
     if problem_type in CLASSIFICATION_TYPES:
-        y_series = pd.Series(np.asarray(y))
+        y_series = pd.Series(y_array)
         class_counts = y_series.value_counts(dropna=False)
 
         if class_counts.empty:
@@ -480,14 +500,12 @@ def get_safe_cv_splitter(
 
 def run_cross_validation(
     pipeline: Pipeline,
-    X: pd.DataFrame,
+    x: pd.DataFrame,
     y: Any,
     problem_type: str,
     cv: KFold | StratifiedKFold,
 ) -> dict[str, float]:
-    """
-    Run optional cross-validation on training data.
-    """
+    """Run optional cross-validation on training data."""
     try:
         if problem_type in CLASSIFICATION_TYPES:
             scoring = str(
@@ -498,11 +516,11 @@ def run_cross_validation(
 
         scores = cross_val_score(
             pipeline,
-            X,
+            x,
             np.asarray(y),
             cv=cv,
             scoring=scoring,
-            n_jobs=int(get_config_value("performance.parallel_jobs", -1)),
+            n_jobs=get_int_config("performance.parallel_jobs", -1),
         )
 
         if problem_type == "regression":
@@ -513,15 +531,13 @@ def run_cross_validation(
             "cv_std": round(float(scores.std()), 4),
         }
 
-    except Exception as error:
+    except (AttributeError, TypeError, ValueError, RuntimeError) as error:
         logger.warning("Cross-validation skipped: %s", error)
         return {}
 
 
 def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, Any]:
-    """
-    Select best baseline model using config-driven metric.
-    """
+    """Select best baseline model using config-driven metric."""
     if problem_type in CLASSIFICATION_TYPES:
         primary_metric = str(
             get_config_value("metrics.classification_default", "f1_score")
@@ -543,7 +559,14 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
     best_score: float | None = None
 
     for model_name, model_result in results.items():
-        raw_score = model_result["metrics"].get(primary_metric)
+        if not isinstance(model_result, dict):
+            continue
+
+        metrics = model_result.get("metrics", {})
+        if not isinstance(metrics, dict):
+            continue
+
+        raw_score = metrics.get(primary_metric)
 
         if raw_score is None:
             continue
@@ -551,16 +574,16 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
         score = float(raw_score)
 
         if best_score is None:
-            best_model_name = model_name
+            best_model_name = str(model_name)
             best_score = score
             continue
 
         if higher_is_better and score > best_score:
-            best_model_name = model_name
+            best_model_name = str(model_name)
             best_score = score
 
         if not higher_is_better and score < best_score:
-            best_model_name = model_name
+            best_model_name = str(model_name)
             best_score = score
 
     if best_model_name is None or best_score is None:
@@ -577,9 +600,7 @@ def select_best_model(results: dict[str, Any], problem_type: str) -> dict[str, A
 def get_sample_features_for_explainability(
     baseline_results: dict[str, Any],
 ) -> pd.DataFrame | None:
-    """
-    Extract sample features from baseline output for explainability.
-    """
+    """Extract sample features from baseline output for explainability."""
     runtime_objects = baseline_results.get("runtime_objects", {})
 
     if not isinstance(runtime_objects, dict):
@@ -606,21 +627,20 @@ def strip_runtime_objects(baseline_results: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    from src.audit.profiler import load_dataset
     from src.audit.problem_detector import detect_problem_type
+    from src.audit.profiler import load_dataset
 
     dataset_path = "data/sample/student_mark.csv"
     target_column = "Grade"
 
-    df = load_dataset(dataset_path)
-    problem_info = detect_problem_type(df, target_column)
+    dataframe = load_dataset(dataset_path)
+    problem_info = detect_problem_type(dataframe, target_column)
 
     output = train_baseline_models(
-        df=df,
+        df=dataframe,
         target_column=target_column,
         problem_type=problem_info["problem_type"],
     )
 
     printable_output = strip_runtime_objects(output)
-
     print(printable_output)

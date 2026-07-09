@@ -6,6 +6,7 @@ These tests cover the most important leakage-audit behaviors:
 - clean data should not be flooded with duplicate-target risks
 - the tool must report possible leakage, not confirmed leakage
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -103,10 +104,7 @@ def test_high_cardinality_identifier_risk_is_flagged():
 
     result = run_leakage_check(df, target_column="target")
 
-    risk_columns = {
-        risk["column"]
-        for risk in result["high_cardinality_review_risks"]
-    }
+    risk_columns = {risk["column"] for risk in result["high_cardinality_review_risks"]}
 
     assert "user_token" in risk_columns
 

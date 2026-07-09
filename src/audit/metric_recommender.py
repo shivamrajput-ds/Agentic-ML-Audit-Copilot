@@ -6,7 +6,6 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import MetricRecommendationError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 SUPPORTED_PROBLEM_TYPES = {
@@ -23,7 +22,6 @@ IMBALANCE_LEVELS = {
     "severe",
     "unknown",
 }
-
 
 SKLEARN_SCORING_MAP = {
     "binary_classification": {
@@ -48,28 +46,26 @@ SKLEARN_SCORING_MAP = {
 }
 
 
-def normalize_text(value: str | None, default: str = "unknown") -> str:
-    """
-    Normalize small config/user text values.
-    """
-    if value is None or str(value).strip() == "":
+def normalize_text(value: Any, default: str = "unknown") -> str:
+    """Normalize small config/user text values."""
+    if value is None or not str(value).strip():
         return default
 
-    return str(value).lower().strip()
+    return str(value).strip().lower()
 
 
 def get_config_text(path: str, default: str) -> str:
-    """
-    Read config value as clean lower-case text.
-    """
+    """Read config value as clean lower-case text."""
     value = get_config_value(path, default)
-    return normalize_text(str(value), default=default)
+    return normalize_text(value, default=default)
 
 
-def get_safe_scoring_metric(problem_type: str, configured_metric: str, fallback: str) -> str:
-    """
-    Return a sklearn-compatible scoring metric.
-    """
+def get_safe_scoring_metric(
+    problem_type: str,
+    configured_metric: str,
+    fallback: str,
+) -> str:
+    """Return a sklearn-compatible scoring metric."""
     metric_map = SKLEARN_SCORING_MAP.get(problem_type, {})
     normalized_metric = normalize_text(configured_metric, fallback)
     return metric_map.get(normalized_metric, fallback)
@@ -79,9 +75,7 @@ def recommend_metrics(
     problem_type: str,
     imbalance_severity: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Recommend evaluation metrics based on the detected ML problem type.
-    """
+    """Recommend evaluation metrics based on the detected ML problem type."""
     try:
         logger.info("Starting metric recommendation")
 
@@ -89,7 +83,7 @@ def recommend_metrics(
 
         if normalized_problem_type not in SUPPORTED_PROBLEM_TYPES:
             raise MetricRecommendationError(
-                f"Unsupported problem type: {normalized_problem_type}"
+                f"Unsupported problem type: {normalized_problem_type}",
             )
 
         normalized_imbalance = normalize_text(imbalance_severity)
@@ -99,10 +93,8 @@ def recommend_metrics(
 
         if normalized_problem_type == "binary_classification":
             result = _binary_classification_metrics(normalized_imbalance)
-
         elif normalized_problem_type == "multiclass_classification":
             result = _multiclass_classification_metrics(normalized_imbalance)
-
         else:
             result = _regression_metrics()
 
@@ -111,13 +103,11 @@ def recommend_metrics(
             result["problem_type"],
             result["primary_metric"],
         )
-
         return result
 
     except MetricRecommendationError:
         raise
-
-    except Exception as error:
+    except (TypeError, ValueError, KeyError) as error:
         logger.exception("Metric recommendation failed.")
         raise MetricRecommendationError(
             "Metric recommendation failed.",
@@ -143,31 +133,29 @@ def _binary_classification_metrics(imbalance_severity: str) -> dict[str, Any]:
     ]
 
     if imbalance_severity in {"moderate", "high", "severe"}:
-        primary_metric = "F1 Score"
-        scoring_metric = get_safe_scoring_metric(
-            "binary_classification",
-            configured_default,
-            "f1",
-        )
         reason = (
             "Binary classification with imbalance should not rely on accuracy. "
             "F1 balances precision and recall. PR-AUC is also important when "
             "the positive class is rare."
         )
+        scoring_metric = get_safe_scoring_metric(
+            "binary_classification",
+            configured_default,
+            "f1",
+        )
     else:
-        primary_metric = "F1 Score"
-        scoring_metric = "f1"
         reason = (
             "Binary classification needs both overall correctness and class-wise "
             "performance. Precision, Recall, F1, ROC-AUC, PR-AUC, Balanced Accuracy, "
             "and Confusion Matrix provide a balanced view."
         )
+        scoring_metric = "f1"
 
     return {
         "problem_type": "binary_classification",
         "imbalance_severity": imbalance_severity,
         "recommended_metrics": metrics,
-        "primary_metric": primary_metric,
+        "primary_metric": "F1 Score",
         "scoring_metric": scoring_metric,
         "configured_default": configured_default,
         "secondary_metrics": [
@@ -258,18 +246,16 @@ def _regression_metrics() -> dict[str, Any]:
         "neg_root_mean_squared_error",
     )
 
-    metrics = [
-        "MAE",
-        "RMSE",
-        "R2 Score",
-        "MAPE",
-        "Median Absolute Error",
-    ]
-
     return {
         "problem_type": "regression",
         "imbalance_severity": "not_applicable",
-        "recommended_metrics": metrics,
+        "recommended_metrics": [
+            "MAE",
+            "RMSE",
+            "R2 Score",
+            "MAPE",
+            "Median Absolute Error",
+        ],
         "primary_metric": "RMSE",
         "scoring_metric": scoring_metric,
         "configured_default": configured_default,

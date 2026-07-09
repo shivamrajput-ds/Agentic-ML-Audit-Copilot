@@ -9,10 +9,17 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import ClassImbalanceError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 CLASSIFICATION_TYPES = {"binary_classification", "multiclass_classification"}
+
+
+def get_float_config(path: str, default: float) -> float:
+    """Read float config values with a safe fallback."""
+    try:
+        return float(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def validate_inputs(
@@ -20,40 +27,55 @@ def validate_inputs(
     target_column: str,
     problem_type: str,
 ) -> None:
+    """Validate inputs for class imbalance detection."""
     if df is None or df.empty:
         raise ClassImbalanceError("Input dataframe is empty.")
 
-    if target_column is None or str(target_column).strip() == "":
+    if target_column is None or not str(target_column).strip():
         raise ClassImbalanceError("Target column is required.")
 
     if target_column not in df.columns:
         raise ClassImbalanceError(f"Target column not found: {target_column}")
 
-    if problem_type is None or str(problem_type).strip() == "":
+    if problem_type is None or not str(problem_type).strip():
         raise ClassImbalanceError("Problem type is required.")
 
 
 def safe_percent(count: int | float, total: int | float) -> float:
+    """Calculate percentage safely."""
     if total == 0:
         return 0.0
+
     return round((float(count) / float(total)) * 100, 2)
 
 
 def get_imbalance_thresholds() -> dict[str, float]:
+    """Read class imbalance thresholds from config."""
     return {
-        "low_ratio_threshold": float(get_config_value("imbalance.low_ratio_threshold", 1.5)),
-        "moderate_ratio_threshold": float(get_config_value("imbalance.moderate_ratio_threshold", 3)),
-        "high_ratio_threshold": float(get_config_value("imbalance.high_ratio_threshold", 10)),
-        "rare_class_threshold_percent": float(
-            get_config_value("imbalance.rare_class_threshold_percent", 5)
+        "low_ratio_threshold": get_float_config(
+            "imbalance.low_ratio_threshold",
+            1.5,
+        ),
+        "moderate_ratio_threshold": get_float_config(
+            "imbalance.moderate_ratio_threshold",
+            3.0,
+        ),
+        "high_ratio_threshold": get_float_config(
+            "imbalance.high_ratio_threshold",
+            10.0,
+        ),
+        "rare_class_threshold_percent": get_float_config(
+            "imbalance.rare_class_threshold_percent",
+            5.0,
         ),
     }
 
 
 def calculate_entropy(class_percentages: pd.Series) -> float:
     """
-    Shannon entropy normalized to [0, 1].
-    Higher means more even class distribution.
+    Calculate normalized Shannon entropy in [0, 1].
+
+    Higher values indicate a more even class distribution.
     """
     probabilities = class_percentages.div(100)
 
@@ -61,9 +83,9 @@ def calculate_entropy(class_percentages: pd.Series) -> float:
         return 0.0
 
     entropy = -sum(
-        float(p) * math.log(float(p), 2)
-        for p in probabilities
-        if float(p) > 0
+        float(probability) * math.log(float(probability), 2)
+        for probability in probabilities
+        if float(probability) > 0
     )
     max_entropy = math.log(len(probabilities), 2)
 
@@ -74,21 +96,20 @@ def calculate_entropy(class_percentages: pd.Series) -> float:
 
 
 def calculate_gini_impurity(class_percentages: pd.Series) -> float:
-    """
-    Gini impurity: higher means more diverse target distribution.
-    """
+    """Calculate Gini impurity; higher values mean more diverse distribution."""
     probabilities = class_percentages.div(100)
-    gini = 1 - sum(float(p) ** 2 for p in probabilities)
+    gini = 1 - sum(float(probability) ** 2 for probability in probabilities)
     return round(float(gini), 4)
 
 
 def calculate_effective_class_count(class_percentages: pd.Series) -> float:
     """
-    Effective number of classes using inverse Simpson index.
+    Calculate effective number of classes using inverse Simpson index.
+
     If class distribution is perfectly balanced, this approaches num_classes.
     """
     probabilities = class_percentages.div(100)
-    denominator = sum(float(p) ** 2 for p in probabilities)
+    denominator = sum(float(probability) ** 2 for probability in probabilities)
 
     if denominator == 0:
         return 0.0
@@ -100,6 +121,7 @@ def get_imbalance_severity(
     imbalance_ratio: float,
     rare_classes: dict[str, float],
 ) -> str:
+    """Classify class imbalance severity."""
     thresholds = get_imbalance_thresholds()
 
     if imbalance_ratio < thresholds["low_ratio_threshold"] and not rare_classes:
@@ -118,23 +140,23 @@ def get_rare_classes(
     class_percentages: pd.Series,
     rare_class_threshold_percent: float | None = None,
 ) -> dict[str, float]:
-    if rare_class_threshold_percent is None:
-        rare_class_threshold_percent = float(
-            get_config_value("imbalance.rare_class_threshold_percent", 5)
-        )
+    """Return classes below the configured rare-class percentage threshold."""
+    threshold = (
+        rare_class_threshold_percent
+        if rare_class_threshold_percent is not None
+        else get_float_config("imbalance.rare_class_threshold_percent", 5.0)
+    )
 
-    rare = class_percentages[class_percentages < rare_class_threshold_percent]
+    rare = class_percentages[class_percentages < threshold]
 
-    return {
-        str(label): float(percent)
-        for label, percent in rare.items()
-    }
+    return {str(label): float(percent) for label, percent in rare.items()}
 
 
 def recommend_metrics_for_imbalance(
     problem_type: str,
     severity: str,
 ) -> list[str]:
+    """Recommend metrics based on problem type and imbalance severity."""
     if problem_type == "binary_classification":
         if severity == "low":
             return ["Accuracy", "F1 Score", "ROC-AUC", "Confusion Matrix"]
@@ -174,6 +196,7 @@ def recommend_actions(
     min_class_count: int,
     num_classes: int,
 ) -> list[str]:
+    """Recommend practical next actions for class imbalance."""
     actions: list[str] = []
 
     if severity == "low" and not rare_classes:
@@ -192,16 +215,20 @@ def recommend_actions(
         actions.append("Consider resampling only after creating a proper train split.")
 
     if rare_classes:
-        actions.append("Rare classes detected; verify whether they are valid labels or data errors.")
+        actions.append(
+            "Rare classes detected; verify whether they are valid labels or data errors.",
+        )
 
     if min_class_count < 5:
         actions.append(
-            "At least one class has fewer than 5 samples. Cross-validation and model evaluation may be unstable."
+            "At least one class has fewer than 5 samples. Cross-validation and "
+            "model evaluation may be unstable.",
         )
 
     if num_classes > 20:
         actions.append(
-            "Target has many classes. Review whether labels are meaningful and not identifiers."
+            "Target has many classes. Review whether labels are meaningful and not "
+            "identifiers.",
         )
 
     return actions
@@ -212,11 +239,13 @@ def get_warning(
     rare_classes: dict[str, float] | None = None,
     min_class_count: int | None = None,
 ) -> str:
+    """Generate a human-readable class imbalance warning."""
     rare_classes = rare_classes or {}
 
     if min_class_count is not None and min_class_count < 2:
         return (
-            "At least one class has fewer than 2 samples. Stratified splitting and reliable evaluation may fail."
+            "At least one class has fewer than 2 samples. Stratified splitting and "
+            "reliable evaluation may fail."
         )
 
     if severity == "low" and not rare_classes:
@@ -248,6 +277,7 @@ def build_findings(
     majority_class: str,
     minority_class: str,
 ) -> list[dict[str, Any]]:
+    """Build standardized findings for imbalance results."""
     findings: list[dict[str, Any]] = []
 
     if severity in {"moderate", "high", "severe"}:
@@ -262,7 +292,7 @@ def build_findings(
                     "imbalance_ratio": imbalance_ratio,
                 },
                 "requires_human_review": True,
-            }
+            },
         )
 
     if rare_classes:
@@ -273,7 +303,7 @@ def build_findings(
                 "message": "Rare classes detected below configured threshold.",
                 "evidence": rare_classes,
                 "requires_human_review": True,
-            }
+            },
         )
 
     if min_class_count < 2:
@@ -284,7 +314,7 @@ def build_findings(
                 "message": "At least one class has fewer than 2 samples.",
                 "evidence": {"min_class_count": min_class_count},
                 "requires_human_review": True,
-            }
+            },
         )
     elif min_class_count < 5:
         findings.append(
@@ -294,10 +324,34 @@ def build_findings(
                 "message": "At least one class has fewer than 5 samples.",
                 "evidence": {"min_class_count": min_class_count},
                 "requires_human_review": True,
-            }
+            },
         )
 
     return findings
+
+
+def _validate_target_series(target_series: pd.Series) -> None:
+    """Validate non-null target values for imbalance detection."""
+    if target_series.empty:
+        raise ClassImbalanceError("Target column has no valid non-null values.")
+
+    if target_series.nunique(dropna=True) < 2:
+        raise ClassImbalanceError(
+            "Target column must contain at least 2 unique classes."
+        )
+
+
+def _build_regression_response(
+    normalized_problem_type: str,
+    target_column: str,
+) -> dict[str, Any]:
+    """Return a standard not-applicable response for regression problems."""
+    return {
+        "problem_type": normalized_problem_type,
+        "target_column": target_column,
+        "is_applicable": False,
+        "message": "Class imbalance detection is not applicable for regression problems.",
+    }
 
 
 def detect_class_imbalance(
@@ -317,27 +371,15 @@ def detect_class_imbalance(
         normalized_problem_type = problem_type.lower().strip()
 
         if normalized_problem_type == "regression":
-            return {
-                "problem_type": normalized_problem_type,
-                "target_column": target_column,
-                "is_applicable": False,
-                "message": "Class imbalance detection is not applicable for regression problems.",
-            }
+            return _build_regression_response(normalized_problem_type, target_column)
 
         if normalized_problem_type not in CLASSIFICATION_TYPES:
             raise ClassImbalanceError(
-                f"Unsupported problem type: {normalized_problem_type}"
+                f"Unsupported problem type: {normalized_problem_type}",
             )
 
         target_series = df[target_column].dropna()
-
-        if target_series.empty:
-            raise ClassImbalanceError("Target column has no valid non-null values.")
-
-        if target_series.nunique(dropna=True) < 2:
-            raise ClassImbalanceError(
-                "Target column must contain at least 2 unique classes."
-            )
+        _validate_target_series(target_series)
 
         value_counts = target_series.value_counts()
         value_percentages = value_counts.div(len(target_series)).mul(100).round(2)
@@ -351,8 +393,15 @@ def detect_class_imbalance(
         num_classes = int(value_counts.shape[0])
 
         imbalance_ratio = round(majority_count / minority_count, 2)
+        rare_class_threshold_percent = get_float_config(
+            "imbalance.rare_class_threshold_percent",
+            5.0,
+        )
 
-        rare_classes = get_rare_classes(value_percentages)
+        rare_classes = get_rare_classes(
+            value_percentages,
+            rare_class_threshold_percent=rare_class_threshold_percent,
+        )
         severity = get_imbalance_severity(imbalance_ratio, rare_classes)
 
         entropy_score = calculate_entropy(value_percentages)
@@ -375,13 +424,13 @@ def detect_class_imbalance(
             "total_rows": int(len(df)),
             "valid_target_rows": total_valid_rows,
             "missing_target_rows": int(df[target_column].isna().sum()),
-            "missing_target_percent": float(
-                round(df[target_column].isna().mean() * 100, 2)
+            "missing_target_percent": safe_percent(
+                int(df[target_column].isna().sum()),
+                len(df),
             ),
             "num_classes": num_classes,
             "class_counts": {
-                str(label): int(count)
-                for label, count in value_counts.items()
+                str(label): int(count) for label, count in value_counts.items()
             },
             "class_percentages": {
                 str(label): float(percent)
@@ -396,9 +445,7 @@ def detect_class_imbalance(
             "imbalance_ratio": float(imbalance_ratio),
             "imbalance_severity": severity,
             "rare_classes": rare_classes,
-            "rare_class_threshold_percent": float(
-                get_config_value("imbalance.rare_class_threshold_percent", 5)
-            ),
+            "rare_class_threshold_percent": rare_class_threshold_percent,
             "distribution_metrics": {
                 "normalized_entropy": entropy_score,
                 "gini_impurity": gini_impurity,
@@ -429,8 +476,7 @@ def detect_class_imbalance(
 
     except ClassImbalanceError:
         raise
-
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         logger.exception("Class imbalance detection failed.")
         raise ClassImbalanceError(
             "Class imbalance detection failed.",
@@ -443,7 +489,7 @@ if __name__ == "__main__":
         {
             "text": ["a", "b", "c", "d", "e", "f", "g", "h"],
             "target": ["yes", "yes", "yes", "yes", "yes", "yes", "no", "no"],
-        }
+        },
     )
 
     output = detect_class_imbalance(

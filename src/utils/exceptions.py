@@ -7,25 +7,24 @@ class AuditCopilotException(Exception):
     """
     Base exception for Agentic ML Audit Copilot.
 
-    Keeps a clean user-facing message and an optional technical detail.
-    API/UI layers can safely convert this exception to a dictionary.
+    Stores a clean user-facing message, optional technical detail,
+    and a status code for API/UI layers.
     """
 
     status_code: int = 500
 
-    def __init__(self, message: str, error_detail: str | None = None):
+    def __init__(self, message: str, error_detail: str | None = None) -> None:
         self.message = str(message)
         self.error_detail = str(error_detail) if error_detail else None
 
-        full_message = (
-            f"{self.message} | Detail: {self.error_detail}"
-            if self.error_detail
-            else self.message
-        )
+        full_message = self.message
+        if self.error_detail:
+            full_message = f"{self.message} | Detail: {self.error_detail}"
 
         super().__init__(full_message)
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the exception into a safe API/UI response dictionary."""
         return {
             "error_type": self.__class__.__name__,
             "message": self.message,
@@ -34,9 +33,7 @@ class AuditCopilotException(Exception):
         }
 
     def user_message(self) -> str:
-        """
-        Return a clean message for UI/API display.
-        """
+        """Return a clean message for UI/API display."""
         return self.message
 
 

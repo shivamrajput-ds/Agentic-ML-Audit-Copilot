@@ -1,6 +1,7 @@
 """
 Tests for src/audit/data_quality.py.
 """
+
 from __future__ import annotations
 
 import numpy as np

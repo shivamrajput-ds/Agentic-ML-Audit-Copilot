@@ -4,7 +4,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,11 +16,23 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import AuditCopilotException
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+UploadFileParam = Annotated[UploadFile, File(...)]
+TargetColumnParam = Annotated[str, Form(...)]
+
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+
+DEFAULT_ALLOWED_CONTENT_TYPES = {
+    "text/csv",
+    "application/csv",
+    "application/vnd.ms-excel",
+    "text/plain",
+    "application/octet-stream",
+}
 
 
 app = FastAPI(
@@ -33,22 +45,34 @@ app = FastAPI(
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
+def get_int_config(path: str, default: int) -> int:
+    """Read integer config values with safe fallback."""
+    try:
+        return int(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_float_config(path: str, default: float) -> float:
+    """Read float config values with safe fallback."""
+    try:
+        return float(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def normalize_list(value: Any, default: list[str]) -> list[str]:
-    """
-    Normalize config values that should be lists.
-    """
+    """Normalize config values that should be lists."""
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
 
@@ -75,9 +99,6 @@ def get_cors_origins() -> list[str]:
 _cors_origins = get_cors_origins()
 _cors_allows_wildcard = "*" in _cors_origins
 
-# Wildcard origins ("*") combined with allow_credentials=True is an invalid/unsafe
-# CORS configuration (browsers reject it, and it defeats the purpose of credentials
-# scoping). Only allow credentials when explicit origins are configured.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -89,9 +110,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_metadata(request: Request, call_next):
-    """
-    Add request id and process time to every API response.
-    """
+    """Add request id and process time to every API response."""
     request_id = str(uuid.uuid4())
     start_time = time.perf_counter()
 
@@ -99,6 +118,8 @@ async def add_request_metadata(request: Request, call_next):
 
     try:
         response = await call_next(request)
+    except (HTTPException, AuditCopilotException):
+        raise
     except Exception:
         logger.exception("Unhandled request failure. request_id=%s", request_id)
         raise
@@ -112,10 +133,11 @@ async def add_request_metadata(request: Request, call_next):
 
 
 @app.exception_handler(AuditCopilotException)
-async def audit_exception_handler(request: Request, error: AuditCopilotException):
-    """
-    Return consistent JSON for project-level exceptions.
-    """
+async def audit_exception_handler(
+    request: Request,
+    error: AuditCopilotException,
+) -> JSONResponse:
+    """Return consistent JSON for project-level exceptions."""
     request_id = getattr(request.state, "request_id", None)
     http_error = map_audit_exception_to_http(error)
 
@@ -131,59 +153,49 @@ async def audit_exception_handler(request: Request, error: AuditCopilotException
 
 
 def get_allowed_extensions() -> set[str]:
-    """
-    Get allowed upload extensions from config.
-    """
+    """Get allowed upload extensions from config."""
     raw_extensions = get_config_value("api.allowed_extensions", [".csv"])
 
     if not isinstance(raw_extensions, list):
         return {".csv"}
 
-    allowed = {str(ext).lower().strip() for ext in raw_extensions if str(ext).strip()}
+    allowed = {
+        str(extension).lower().strip()
+        for extension in raw_extensions
+        if str(extension).strip()
+    }
 
     return allowed or {".csv"}
 
 
 def get_allowed_content_types() -> set[str]:
     """
-    Allowed MIME types for CSV uploads.
+    Return allowed MIME types for CSV uploads.
 
     Browser MIME values vary, so this is intentionally permissive for CSV.
     """
     raw_types = get_config_value(
         "api.allowed_content_types",
-        [
-            "text/csv",
-            "application/csv",
-            "application/vnd.ms-excel",
-            "text/plain",
-            "application/octet-stream",
-        ],
+        sorted(DEFAULT_ALLOWED_CONTENT_TYPES),
     )
 
     if not isinstance(raw_types, list):
-        return {
-            "text/csv",
-            "application/csv",
-            "application/vnd.ms-excel",
-            "text/plain",
-            "application/octet-stream",
-        }
+        return DEFAULT_ALLOWED_CONTENT_TYPES
 
-    return {str(item).lower().strip() for item in raw_types if str(item).strip()}
+    allowed_types = {
+        str(item).lower().strip() for item in raw_types if str(item).strip()
+    }
+
+    return allowed_types or DEFAULT_ALLOWED_CONTENT_TYPES
 
 
 def get_file_size_mb(file_path: Path) -> float:
-    """
-    Return file size in megabytes.
-    """
+    """Return file size in megabytes."""
     return file_path.stat().st_size / (1024 * 1024)
 
 
 def validate_upload_metadata(file: UploadFile, target_column: str) -> str:
-    """
-    Validate request metadata before saving file.
-    """
+    """Validate request metadata before saving file."""
     if not file.filename:
         raise HTTPException(
             status_code=400,
@@ -218,7 +230,9 @@ def validate_upload_metadata(file: UploadFile, target_column: str) -> str:
             detail="Target column is required.",
         )
 
-    if len(clean_target_column) > int(get_config_value("api.max_target_column_chars", 200)):
+    max_target_column_chars = get_int_config("api.max_target_column_chars", 200)
+
+    if len(clean_target_column) > max_target_column_chars:
         raise HTTPException(
             status_code=400,
             detail="Target column name is too long.",
@@ -228,9 +242,7 @@ def validate_upload_metadata(file: UploadFile, target_column: str) -> str:
 
 
 def save_upload_to_disk(file: UploadFile) -> Path:
-    """
-    Save uploaded file to a unique path.
-    """
+    """Save uploaded file to a unique path."""
     safe_filename = Path(file.filename or "uploaded.csv").name
     unique_filename = f"{uuid.uuid4()}_{safe_filename}"
     file_path = UPLOAD_DIR / unique_filename
@@ -241,16 +253,14 @@ def save_upload_to_disk(file: UploadFile) -> Path:
     finally:
         try:
             file.file.close()
-        except Exception:
-            pass
+        except OSError:
+            logger.warning("Failed to close uploaded file handle: %s", safe_filename)
 
     return file_path
 
 
 def validate_saved_file(file_path: Path) -> None:
-    """
-    Validate saved upload size and non-empty content.
-    """
+    """Validate saved upload size and non-empty content."""
     if not file_path.exists():
         raise HTTPException(
             status_code=500,
@@ -269,7 +279,7 @@ def validate_saved_file(file_path: Path) -> None:
             detail="Uploaded file is empty.",
         )
 
-    max_upload_mb = float(get_config_value("api.max_upload_mb", 25))
+    max_upload_mb = get_float_config("api.max_upload_mb", 25.0)
     file_size_mb = get_file_size_mb(file_path)
 
     if file_size_mb > max_upload_mb:
@@ -280,39 +290,35 @@ def validate_saved_file(file_path: Path) -> None:
 
 
 def strip_non_serializable_objects(audit_result: dict[str, Any]) -> dict[str, Any]:
-    """
-    Remove sklearn pipelines, DataFrames, and runtime objects from API response.
-    """
+    """Remove sklearn pipelines, DataFrames, and runtime objects from API response."""
     cleaned = dict(audit_result)
 
-    baseline_results = dict(cleaned.get("baseline_results", {}))
+    baseline_raw = cleaned.get("baseline_results", {})
+    baseline_results = dict(baseline_raw) if isinstance(baseline_raw, dict) else {}
+
     baseline_results.pop("trained_model_objects", None)
     baseline_results.pop("runtime_objects", None)
-    cleaned["baseline_results"] = baseline_results
 
+    cleaned["baseline_results"] = baseline_results
     cleaned.pop("df", None)
 
     return cleaned
 
 
 def cleanup_uploaded_file(file_path: Path | None) -> None:
-    """
-    Delete uploaded file if cleanup is enabled in config.
-    """
+    """Delete uploaded file if cleanup is enabled in config."""
     should_cleanup = as_bool(get_config_value("api.cleanup_uploaded_files", True))
 
     if should_cleanup and file_path and file_path.exists():
         try:
             file_path.unlink(missing_ok=True)
             logger.info("Cleaned uploaded file: %s", file_path)
-        except Exception as error:
+        except OSError as error:
             logger.warning("Failed to clean uploaded file %s: %s", file_path, error)
 
 
 def map_audit_exception_to_http(error: AuditCopilotException) -> HTTPException:
-    """
-    Convert project exceptions to user-friendly HTTP errors.
-    """
+    """Convert project exceptions to user-friendly HTTP errors."""
     message = str(error)
     lowered = message.lower()
 
@@ -335,11 +341,15 @@ def map_audit_exception_to_http(error: AuditCopilotException) -> HTTPException:
 
 
 def make_summary_response(full_result: dict[str, Any]) -> dict[str, Any]:
-    """
-    Build lightweight response from full audit result.
-    """
+    """Build lightweight response from full audit result."""
     leakage = full_result.get("leakage", {}) or {}
     baseline_results = full_result.get("baseline_results", {}) or {}
+
+    if not isinstance(leakage, dict):
+        leakage = {}
+
+    if not isinstance(baseline_results, dict):
+        baseline_results = {}
 
     return {
         "message": full_result.get("message"),
@@ -363,9 +373,7 @@ async def execute_audit_request(
     file: UploadFile,
     target_column: str,
 ) -> dict[str, Any]:
-    """
-    Shared implementation for full and summary audit endpoints.
-    """
+    """Shared implementation for full and summary audit endpoints."""
     file_path: Path | None = None
 
     try:
@@ -385,6 +393,10 @@ async def execute_audit_request(
         )
 
         safe_result = strip_non_serializable_objects(audit_result)
+        report_save_result = safe_result.get("report_save_result", {})
+
+        if not isinstance(report_save_result, dict):
+            report_save_result = {}
 
         return {
             "message": "Audit completed successfully.",
@@ -403,36 +415,37 @@ async def execute_audit_request(
             "explainability": safe_result.get("explainability"),
             "mlflow_results": safe_result.get("mlflow_results"),
             "audit_report": safe_result.get("audit_report"),
-            "report_path": safe_result.get("report_save_result", {}).get(
-                "report_path"
-            ),
+            "report_path": report_save_result.get("report_path"),
         }
 
     except HTTPException:
         raise
-
     except AuditCopilotException as error:
         logger.error("Audit failed: %s", error)
         raise map_audit_exception_to_http(error) from error
-
-    except Exception as error:
-        # Log the full exception server-side only. Do not leak internal error
-        # details (stack traces, file paths, library internals) to the client.
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        OSError,
+    ) as error:
         logger.exception("Unexpected API error during audit execution.")
         raise HTTPException(
             status_code=500,
             detail=(
                 "Unexpected server error during audit execution. "
-                "Check server logs (X-Request-ID header) for details."
+                "Check server logs with the X-Request-ID header for details."
             ),
         ) from error
-
     finally:
         cleanup_uploaded_file(file_path)
 
 
 @app.get("/")
 def root() -> dict[str, Any]:
+    """Root API endpoint."""
     return {
         "message": "Agentic ML Audit Copilot API is running.",
         "docs": "/docs",
@@ -443,6 +456,7 @@ def root() -> dict[str, Any]:
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
+    """Health-check endpoint."""
     return {
         "status": "healthy",
         "service": "agentic-ml-audit-copilot",
@@ -452,8 +466,8 @@ def health_check() -> dict[str, str]:
 
 @app.post("/audit")
 async def run_audit(
-    file: UploadFile = File(...),
-    target_column: str = Form(...),
+    file: UploadFileParam,
+    target_column: TargetColumnParam,
 ) -> dict[str, Any]:
     """
     Upload a CSV dataset and run the full ML audit workflow.
@@ -466,11 +480,9 @@ async def run_audit(
 
 @app.post("/audit/summary")
 async def run_audit_summary(
-    file: UploadFile = File(...),
-    target_column: str = Form(...),
+    file: UploadFileParam,
+    target_column: TargetColumnParam,
 ) -> dict[str, Any]:
-    """
-    Lightweight endpoint that returns only the top-level audit summary.
-    """
+    """Return only the top-level audit summary."""
     full_result = await execute_audit_request(file=file, target_column=target_column)
     return make_summary_response(full_result)

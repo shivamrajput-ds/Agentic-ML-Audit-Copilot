@@ -14,15 +14,14 @@ from src.utils.config import get_config_value, get_llm_config
 from src.utils.exceptions import ReportGenerationError
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
-
 
 MAX_CONTEXT_CHARS = 18_000
 MAX_CHAT_QUESTION_CHARS = 1_000
 DEFAULT_CACHE_DIR = "artifacts/report_cache"
 PROMPT_VERSION = "v2.0"
 
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
 
 BLOCKED_CONTEXT_KEYS = {
     "trained_model_objects",
@@ -36,7 +35,6 @@ BLOCKED_CONTEXT_KEYS = {
     "label_encoder",
 }
 
-
 SUSPICIOUS_UNGROUNDED_PATTERNS = [
     "99% accuracy",
     "100% accuracy",
@@ -48,35 +46,29 @@ SUSPICIOUS_UNGROUNDED_PATTERNS = [
 
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config/env style values into bool.
-    """
+    """Convert config/env style values into bool."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
 def safe_int(value: Any, default: int) -> int:
-    """
-    Read integer config values without crashing report generation.
-    """
+    """Read integer config values without crashing report generation."""
     try:
         return int(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
 def safe_float(value: Any, default: float) -> float:
-    """
-    Read float config values without crashing report generation.
-    """
+    """Read float config values without crashing report generation."""
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
@@ -110,9 +102,7 @@ def json_safe(data: Any) -> Any:
 
 
 def truncate_text(text: str, max_chars: int = MAX_CONTEXT_CHARS) -> str:
-    """
-    Keep prompt context inside a safe token budget.
-    """
+    """Keep prompt context inside a safe token budget."""
     if len(text) <= max_chars:
         return text
 
@@ -138,7 +128,7 @@ def get_report_config() -> dict[str, Any]:
             1.0,
         ),
         "hallucination_guard_enabled": as_bool(
-            get_config_value("llm.hallucination_guard_enabled", True)
+            get_config_value("llm.hallucination_guard_enabled", True),
         ),
         "max_context_chars": safe_int(
             get_config_value("llm.max_context_chars", MAX_CONTEXT_CHARS),
@@ -152,25 +142,19 @@ def get_report_config() -> dict[str, Any]:
 
 
 def stable_context_hash(context: dict[str, Any]) -> str:
-    """
-    Build stable hash for report cache.
-    """
+    """Build stable hash for report cache."""
     payload = json.dumps(context, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def get_cache_path(context: dict[str, Any], cache_dir: str) -> Path:
-    """
-    Return cache path for a context hash.
-    """
+    """Return cache path for a context hash."""
     digest = stable_context_hash(context)
     return Path(cache_dir) / f"audit_report_{PROMPT_VERSION}_{digest}.md"
 
 
 def read_cached_report(context: dict[str, Any], cache_dir: str) -> str | None:
-    """
-    Return cached report if available.
-    """
+    """Return cached report if available."""
     path = get_cache_path(context, cache_dir)
 
     if not path.exists():
@@ -179,20 +163,18 @@ def read_cached_report(context: dict[str, Any], cache_dir: str) -> str | None:
     try:
         logger.info("Using cached audit report: %s", path)
         return path.read_text(encoding="utf-8")
-    except Exception as error:
+    except OSError as error:
         logger.warning("Could not read cached report: %s", error)
         return None
 
 
 def write_cached_report(context: dict[str, Any], report: str, cache_dir: str) -> None:
-    """
-    Save report cache. Cache failure should never fail the audit.
-    """
+    """Save report cache. Cache failure should never fail the audit."""
     try:
         path = get_cache_path(context, cache_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(report, encoding="utf-8")
-    except Exception as error:
+    except OSError as error:
         logger.warning("Could not write cached report: %s", error)
 
 
@@ -209,7 +191,19 @@ def extract_report_context(audit_results: dict[str, Any]) -> dict[str, Any]:
     data_quality = safe.get("data_quality", {}) or {}
     explainability = safe.get("explainability", {}) or {}
 
-    shap_info = explainability.get("shap", {}) if isinstance(explainability, dict) else {}
+    if not isinstance(baseline, dict):
+        baseline = {}
+
+    if not isinstance(leakage, dict):
+        leakage = {}
+
+    if not isinstance(data_quality, dict):
+        data_quality = {}
+
+    if not isinstance(explainability, dict):
+        explainability = {}
+
+    shap_info = explainability.get("shap", {})
     if not isinstance(shap_info, dict):
         shap_info = {}
 
@@ -217,7 +211,9 @@ def extract_report_context(audit_results: dict[str, Any]) -> dict[str, Any]:
         "project": {
             "name": get_config_value("project.name", "Agentic ML Audit Copilot"),
             "version": get_config_value("project.version", "1.0.0"),
-            "philosophy": "Deterministic-first; LLM explains Python-generated audit results only.",
+            "philosophy": (
+                "Deterministic-first; LLM explains Python-generated audit results only."
+            ),
             "prompt_version": PROMPT_VERSION,
         },
         "target_column": safe.get("target_column"),
@@ -261,7 +257,9 @@ def extract_report_context(audit_results: dict[str, Any]) -> dict[str, Any]:
             "best_model_name": explainability.get("best_model_name"),
             "model_type": explainability.get("model_type"),
             "summary": explainability.get("summary"),
-            "builtin_feature_importance": explainability.get("builtin_feature_importance"),
+            "builtin_feature_importance": explainability.get(
+                "builtin_feature_importance",
+            ),
             "shap": {
                 "available": shap_info.get("available"),
                 "method": shap_info.get("method"),
@@ -274,9 +272,7 @@ def extract_report_context(audit_results: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_system_prompt() -> str:
-    """
-    Strict prompt for grounded audit reporting.
-    """
+    """Strict prompt for grounded audit reporting."""
     return f"""
 You are an ML audit report writer for a deterministic-first ML audit system.
 
@@ -296,6 +292,7 @@ Rules:
 
 
 def build_report_user_prompt(context: dict[str, Any]) -> str:
+    """Build user prompt for audit report generation."""
     config = get_report_config()
     context_json = truncate_text(
         json.dumps(context, indent=2, default=str),
@@ -333,24 +330,20 @@ AUDIT_CONTEXT:
 
 
 def get_groq_client() -> Groq:
-    """
-    Create Groq client from config/env.
-    """
+    """Create Groq client from config/env."""
     llm_config = get_llm_config()
     api_key = llm_config.get("api_key")
 
     if not api_key:
         raise ReportGenerationError(
-            "GROQ_API_KEY is not configured. Cannot generate LLM report."
+            "GROQ_API_KEY is not configured. Cannot generate LLM report.",
         )
 
     return Groq(api_key=str(api_key))
 
 
 def extract_usage(response: Any) -> dict[str, Any]:
-    """
-    Extract token usage if provider returns it.
-    """
+    """Extract token usage if provider returns it."""
     usage = getattr(response, "usage", None)
 
     if usage is None:
@@ -364,9 +357,7 @@ def extract_usage(response: Any) -> dict[str, Any]:
 
 
 def call_groq_once(messages: list[dict[str, str]]) -> tuple[str, dict[str, Any]]:
-    """
-    Single Groq call. Retry is handled by call_groq().
-    """
+    """Single Groq call. Retry is handled by call_groq()."""
     llm_config = get_llm_config()
     client = get_groq_client()
 
@@ -375,7 +366,7 @@ def call_groq_once(messages: list[dict[str, str]]) -> tuple[str, dict[str, Any]]
     response = client.chat.completions.create(
         model=str(llm_config.get("model", "llama-3.3-70b-versatile")),
         temperature=safe_float(llm_config.get("temperature", 0.2), 0.2),
-        max_tokens=safe_int(llm_config.get("max_tokens", 2000), 2000),
+        max_tokens=safe_int(llm_config.get("max_tokens", 2_000), 2_000),
         messages=messages,
     )
 
@@ -417,7 +408,7 @@ def call_groq(messages: list[dict[str, str]]) -> str:
         try:
             content, _metadata = call_groq_once(messages)
             return content
-        except Exception as error:
+        except (AttributeError, TypeError, ValueError, OSError) as error:
             last_error = error
 
             if attempt >= max_retries:
@@ -443,7 +434,8 @@ def contains_basic_hallucination_risk(report: str, context: dict[str, Any]) -> b
     """
     Lightweight hallucination guard.
 
-    This does not prove correctness. It catches obvious unsafe claims before returning LLM output.
+    This does not prove correctness. It catches obvious unsafe claims before
+    returning LLM output.
     """
     lowered = report.lower()
     context_text = json.dumps(context, default=str).lower()
@@ -461,9 +453,7 @@ def contains_basic_hallucination_risk(report: str, context: dict[str, Any]) -> b
 
 
 def build_deterministic_report(context: dict[str, Any]) -> str:
-    """
-    Fallback Markdown report when LLM is unavailable or rejected.
-    """
+    """Build fallback Markdown report when LLM is unavailable or rejected."""
     baseline = context.get("baseline_summary", {}) or {}
     best_model = baseline.get("best_model", {}) or {}
     leakage = context.get("leakage_summary", {}) or {}
@@ -471,6 +461,13 @@ def build_deterministic_report(context: dict[str, Any]) -> str:
     metric = context.get("metric_recommendation", {}) or {}
     human_review = context.get("human_review", {}) or {}
     explainability = context.get("explainability_summary", {}) or {}
+    audit_score = context.get("audit_score") or {}
+
+    if not isinstance(best_model, dict):
+        best_model = {}
+
+    if not isinstance(audit_score, dict):
+        audit_score = {}
 
     lines = [
         "# Agentic ML Audit Report",
@@ -481,8 +478,8 @@ def build_deterministic_report(context: dict[str, Any]) -> str:
         "## Executive Summary",
         f"- Target column: `{context.get('target_column', 'Not available')}`",
         f"- Problem type: `{context.get('problem_type', 'Not available')}`",
-        f"- Audit score: `{(context.get('audit_score') or {}).get('score', 'Not available')}`",
-        f"- Readiness: `{(context.get('audit_score') or {}).get('readiness', 'Not available')}`",
+        f"- Audit score: `{audit_score.get('score', 'Not available')}`",
+        f"- Readiness: `{audit_score.get('readiness', 'Not available')}`",
         "",
         "## Data Quality Findings",
         f"- Quality score: `{(data_quality.get('quality_score') or {}).get('score', 'Not available')}`",
@@ -551,11 +548,15 @@ def build_audit_report(audit_results: dict[str, Any]) -> str:
 
         report = call_groq(messages)
 
-        if bool(config["hallucination_guard_enabled"]) and contains_basic_hallucination_risk(
+        if bool(
+            config["hallucination_guard_enabled"]
+        ) and contains_basic_hallucination_risk(
             report=report,
             context=context,
         ):
-            logger.warning("LLM report rejected by hallucination guard. Using fallback.")
+            logger.warning(
+                "LLM report rejected by hallucination guard. Using fallback."
+            )
             return build_deterministic_report(context)
 
         if bool(config["cache_enabled"]):
@@ -564,7 +565,7 @@ def build_audit_report(audit_results: dict[str, Any]) -> str:
         logger.info("Audit report generated successfully")
         return report
 
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError, OSError) as error:
         logger.warning("LLM report generation failed. Using fallback: %s", error)
         context = extract_report_context(audit_results)
         return build_deterministic_report(context)
@@ -574,7 +575,8 @@ def markdown_to_simple_html(markdown_text: str) -> str:
     """
     Small dependency-free Markdown-to-HTML fallback.
 
-    This is intentionally simple. Use markdown/markdown2 package later if richer HTML is needed.
+    This is intentionally simple. Use markdown/markdown2 package later if richer
+    HTML is needed.
     """
     lines: list[str] = []
 
@@ -632,15 +634,21 @@ def save_audit_report(
                         "<meta charset='utf-8'>",
                         "<title>Agentic ML Audit Report</title>",
                         "<style>",
-                        "body{font-family:Inter,Arial,sans-serif;max-width:980px;margin:40px auto;line-height:1.6;color:#111827;}",
-                        "h1,h2,h3{color:#0f172a;} code{background:#f1f5f9;padding:2px 5px;border-radius:4px;}",
+                        (
+                            "body{font-family:Inter,Arial,sans-serif;max-width:980px;"
+                            "margin:40px auto;line-height:1.6;color:#111827;}"
+                        ),
+                        (
+                            "h1,h2,h3{color:#0f172a;} "
+                            "code{background:#f1f5f9;padding:2px 5px;border-radius:4px;}"
+                        ),
                         "</style>",
                         "</head>",
                         "<body>",
                         html_body,
                         "</body>",
                         "</html>",
-                    ]
+                    ],
                 ),
                 encoding="utf-8",
             )
@@ -666,7 +674,7 @@ def save_audit_report(
             "message": "Audit report saved successfully.",
         }
 
-    except Exception as error:
+    except OSError as error:
         logger.exception("Failed to save audit report.")
         raise ReportGenerationError(
             "Failed to save audit report.",
@@ -675,9 +683,7 @@ def save_audit_report(
 
 
 def build_chat_context(audit_context: dict[str, Any]) -> dict[str, Any]:
-    """
-    Build compact context for audit Q&A.
-    """
+    """Build compact context for audit Q&A."""
     context = extract_report_context(audit_context)
 
     return {
@@ -694,6 +700,7 @@ def build_chat_context(audit_context: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_chat_prompt(context: dict[str, Any], user_question: str) -> str:
+    """Build grounded chat prompt from compact audit context."""
     config = get_report_config()
     question = user_question.strip()[: int(config["max_chat_question_chars"])]
 
@@ -725,9 +732,7 @@ def ask_about_audit(
     audit_context: dict[str, Any],
     user_question: str,
 ) -> str:
-    """
-    Ask a grounded question about the current audit.
-    """
+    """Ask a grounded question about the current audit."""
     try:
         if not user_question or not user_question.strip():
             return "Please ask a non-empty question about the audit."
@@ -745,7 +750,9 @@ def ask_about_audit(
 
         answer = call_groq(messages)
 
-        if bool(config["hallucination_guard_enabled"]) and contains_basic_hallucination_risk(
+        if bool(
+            config["hallucination_guard_enabled"]
+        ) and contains_basic_hallucination_risk(
             report=answer,
             context=context,
         ):
@@ -753,15 +760,13 @@ def ask_about_audit(
 
         return answer
 
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError, OSError) as error:
         logger.warning("Audit chat failed. Using fallback: %s", error)
         return fallback_audit_answer(build_chat_context(audit_context), user_question)
 
 
 def fallback_audit_answer(context: dict[str, Any], user_question: str) -> str:
-    """
-    Deterministic fallback for common audit questions.
-    """
+    """Deterministic fallback for common audit questions."""
     question = user_question.lower()
     leakage = context.get("leakage_summary", {}) or {}
     baseline = context.get("baseline_summary", {}) or {}
@@ -793,14 +798,16 @@ def fallback_audit_answer(context: dict[str, Any], user_question: str) -> str:
 
     if "quality" in question or "missing" in question:
         return (
-            f"Data quality score: {(data_quality.get('quality_score') or {}).get('score', 'Not available')}. "
+            "Data quality score: "
+            f"{(data_quality.get('quality_score') or {}).get('score', 'Not available')}. "
             f"Duplicate rows: {data_quality.get('duplicate_rows', 'Not available')}. "
             f"Warnings: {data_quality.get('warnings', [])}."
         )
 
     if "ready" in question or "final" in question:
         return (
-            f"Human review required: {human_review.get('requires_human_review', 'Not available')}. "
+            "Human review required: "
+            f"{human_review.get('requires_human_review', 'Not available')}. "
             "Final readiness should be decided after reviewing leakage, data quality, "
             "class imbalance, explainability, and baseline results."
         )
@@ -825,7 +832,7 @@ if __name__ == "__main__":
                 "model_name": "Logistic Regression",
                 "selection_metric": "f1_score",
                 "score": 0.91,
-            }
+            },
         },
     }
 

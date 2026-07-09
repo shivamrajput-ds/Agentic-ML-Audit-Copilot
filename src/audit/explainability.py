@@ -11,7 +11,6 @@ from src.utils.config import get_config_value
 from src.utils.exceptions import AuditCopilotException
 from src.utils.logger import get_logger
 
-
 logger = get_logger(__name__)
 
 
@@ -40,48 +39,48 @@ LINEAR_MODEL_KEYWORDS = [
     "sgd",
 ]
 
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+
 
 def as_bool(value: Any) -> bool:
-    """
-    Convert config values safely into boolean.
-    """
+    """Convert config values safely into boolean."""
     if isinstance(value, bool):
         return value
 
     if isinstance(value, str):
-        return value.lower().strip() in {"true", "1", "yes", "y"}
+        return value.strip().lower() in TRUE_VALUES
 
     return bool(value)
 
 
-def records_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """
-    Convert pandas records to Pylance-friendly list[dict[str, Any]].
+def get_int_config(path: str, default: int) -> int:
+    """Read integer config values with safe fallback."""
+    try:
+        return int(get_config_value(path, default))
+    except (TypeError, ValueError):
+        return default
 
-    pandas returns list[dict[Hashable, Any]], which triggers strict Pylance.
-    """
+
+def records_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Convert pandas records to JSON-safe list[dict[str, Any]]."""
     raw_records = df.to_dict(orient="records")
-    return [
-        {str(key): value for key, value in row.items()}
-        for row in raw_records
-    ]
+    return [{str(key): value for key, value in row.items()} for row in raw_records]
 
 
 def get_explainability_config() -> dict[str, Any]:
-    """
-    Read explainability config from config.yaml.
-    """
+    """Read explainability config from config.yaml."""
     return {
         "enabled": as_bool(get_config_value("explainability.enabled", False)),
         "run_shap": as_bool(get_config_value("explainability.run_shap", False)),
-        "max_samples": int(get_config_value("explainability.max_samples", 200)),
-        "top_n_features": int(get_config_value("explainability.top_n_features", 20)),
-        "random_state": int(get_config_value("random_seed", 42)),
+        "max_samples": get_int_config("explainability.max_samples", 200),
+        "top_n_features": get_int_config("explainability.top_n_features", 20),
+        "random_state": get_int_config("random_seed", 42),
         "generate_plots": as_bool(
-            get_config_value("explainability.generate_plots", True)
+            get_config_value("explainability.generate_plots", True),
         ),
-        "plot_max_features": int(
-            get_config_value("explainability.plot_max_features", 20)
+        "plot_max_features": get_int_config(
+            "explainability.plot_max_features",
+            20,
         ),
     }
 
@@ -90,13 +89,14 @@ def validate_inputs(
     baseline_results: dict[str, Any],
     sample_features: pd.DataFrame | None,
 ) -> None:
-    """
-    Validate explainability inputs.
-    """
+    """Validate explainability inputs."""
     if not baseline_results:
         raise ExplainabilityError("Baseline results are required for explainability.")
 
     best_model = baseline_results.get("best_model", {})
+    if not isinstance(best_model, dict):
+        raise ExplainabilityError("best_model must be a dictionary.")
+
     best_model_name = best_model.get("model_name")
 
     if not best_model_name:
@@ -106,12 +106,12 @@ def validate_inputs(
 
     if not isinstance(trained_models, dict) or not trained_models:
         raise ExplainabilityError(
-            "Trained model objects are missing. Explainability requires fitted models."
+            "Trained model objects are missing. Explainability requires fitted models.",
         )
 
     if best_model_name not in trained_models:
         raise ExplainabilityError(
-            f"Best model object not found for model: {best_model_name}"
+            f"Best model object not found for model: {best_model_name}",
         )
 
     if sample_features is not None and not isinstance(sample_features, pd.DataFrame):
@@ -119,10 +119,12 @@ def validate_inputs(
 
 
 def get_best_model_pipeline(baseline_results: dict[str, Any]) -> Any:
-    """
-    Return fitted sklearn Pipeline for the selected best model.
-    """
-    best_model_name = baseline_results.get("best_model", {}).get("model_name")
+    """Return fitted sklearn Pipeline for the selected best model."""
+    best_model = baseline_results.get("best_model", {})
+    if not isinstance(best_model, dict):
+        return None
+
+    best_model_name = best_model.get("model_name")
     trained_models = baseline_results.get("trained_model_objects", {})
 
     if not isinstance(trained_models, dict):
@@ -152,37 +154,23 @@ def get_pipeline_parts(model_pipeline: Any) -> tuple[Any | None, Any]:
 
 
 def get_estimator_name(estimator: Any) -> str:
-    """
-    Return estimator class name.
-    """
+    """Return estimator class name."""
     return estimator.__class__.__name__
 
 
 def normalize_model_name(name: str) -> str:
-    """
-    Normalize model name for keyword matching.
-    """
-    return (
-        str(name)
-        .lower()
-        .replace(" ", "")
-        .replace("_", "")
-        .replace("-", "")
-    )
+    """Normalize model name for keyword matching."""
+    return str(name).lower().replace(" ", "").replace("_", "").replace("-", "")
 
 
 def is_tree_model(estimator: Any) -> bool:
-    """
-    Detect tree-based models.
-    """
+    """Detect tree-based models."""
     normalized = normalize_model_name(get_estimator_name(estimator))
     return any(keyword in normalized for keyword in TREE_MODEL_KEYWORDS)
 
 
 def is_linear_model(estimator: Any) -> bool:
-    """
-    Detect linear/coefficient-based models.
-    """
+    """Detect linear/coefficient-based models."""
     normalized = normalize_model_name(get_estimator_name(estimator))
     return any(keyword in normalized for keyword in LINEAR_MODEL_KEYWORDS)
 
@@ -192,9 +180,7 @@ def sample_dataframe(
     max_samples: int,
     random_state: int,
 ) -> pd.DataFrame:
-    """
-    Sample dataframe for explainability to keep SHAP fast.
-    """
+    """Sample dataframe for explainability to keep SHAP fast."""
     if df.empty:
         return df.copy()
 
@@ -208,9 +194,7 @@ def transform_features(
     preprocessor: Any | None,
     features: pd.DataFrame,
 ) -> Any:
-    """
-    Transform raw features using fitted preprocessor.
-    """
+    """Transform raw features using fitted preprocessor."""
     if preprocessor is None:
         return features
 
@@ -222,31 +206,27 @@ def get_feature_names(
     raw_features: pd.DataFrame,
     transformed_features: Any,
 ) -> list[str]:
-    """
-    Get feature names after preprocessing.
-    """
+    """Get feature names after preprocessing."""
     if preprocessor is not None and hasattr(preprocessor, "get_feature_names_out"):
         try:
             names = preprocessor.get_feature_names_out()
             return [str(name) for name in names]
-        except Exception as error:
+        except (AttributeError, TypeError, ValueError) as error:
             logger.warning("Could not get transformed feature names: %s", error)
 
     if isinstance(transformed_features, pd.DataFrame):
-        return [str(col) for col in transformed_features.columns]
+        return [str(column) for column in transformed_features.columns]
 
     shape = getattr(transformed_features, "shape", None)
 
     if shape is not None and len(shape) == 2:
         return [f"feature_{idx}" for idx in range(shape[1])]
 
-    return [str(col) for col in raw_features.columns]
+    return [str(column) for column in raw_features.columns]
 
 
 def to_numpy_array(values: Any) -> np.ndarray:
-    """
-    Convert dense/sparse/dataframe values to numpy array.
-    """
+    """Convert dense/sparse/dataframe values to numpy array."""
     if hasattr(values, "toarray"):
         return np.asarray(values.toarray())
 
@@ -262,9 +242,7 @@ def build_importance_dataframe(
     top_n: int,
     importance_column: str = "importance",
 ) -> pd.DataFrame:
-    """
-    Build sorted feature importance dataframe.
-    """
+    """Build sorted feature importance dataframe."""
     importances = np.asarray(importances)
 
     if importances.ndim > 1:
@@ -279,7 +257,7 @@ def build_importance_dataframe(
         {
             "feature": feature_names,
             importance_column: importances.astype(float),
-        }
+        },
     )
 
     importance_df["absolute_importance"] = importance_df[importance_column].abs()
@@ -293,9 +271,7 @@ def extract_tree_feature_importance(
     feature_names: list[str],
     top_n: int,
 ) -> list[dict[str, Any]]:
-    """
-    Extract feature_importances_ from tree-based estimators.
-    """
+    """Extract feature_importances_ from tree-based estimators."""
     if not hasattr(estimator, "feature_importances_"):
         return []
 
@@ -315,9 +291,7 @@ def extract_linear_feature_importance(
     feature_names: list[str],
     top_n: int,
 ) -> list[dict[str, Any]]:
-    """
-    Extract coefficient-based importance from linear models.
-    """
+    """Extract coefficient-based importance from linear models."""
     if not hasattr(estimator, "coef_"):
         return []
 
@@ -345,9 +319,7 @@ def get_builtin_feature_importance(
     feature_names: list[str],
     top_n: int,
 ) -> dict[str, Any]:
-    """
-    Extract built-in model explainability from fitted estimator.
-    """
+    """Extract built-in model explainability from fitted estimator."""
     estimator_name = get_estimator_name(estimator)
 
     tree_importance = extract_tree_feature_importance(
@@ -393,23 +365,19 @@ def get_builtin_feature_importance(
 
 
 def import_shap_module() -> Any | None:
-    """
-    Import SHAP lazily so the project still works when shap is not installed.
-    """
+    """Import SHAP lazily so the project still works when shap is not installed."""
     try:
-        import shap  # type: ignore
+        import shap  # type: ignore[import-untyped]
 
         return shap
-    except Exception as error:
+    except ImportError as error:
         logger.warning("SHAP is not available: %s", error)
         return None
 
 
 def normalize_shap_values(shap_values: Any) -> np.ndarray:
     """
-    Normalize SHAP values into array shape:
-    - regression/binary single output: (n_samples, n_features)
-    - multiclass/multi-output summarized: (n_samples, n_features)
+    Normalize SHAP values into 2D array.
 
     Supports:
     - shap.Explanation
@@ -425,13 +393,11 @@ def normalize_shap_values(shap_values: Any) -> np.ndarray:
         arrays = [np.asarray(item) for item in values]
         if not arrays:
             return np.asarray([])
-        values = np.mean([np.abs(arr) for arr in arrays], axis=0)
+        values = np.mean([np.abs(array) for array in arrays], axis=0)
 
     values_array = np.asarray(values)
 
     if values_array.ndim == 3:
-        # Common shape: (n_samples, n_features, n_outputs)
-        # We summarize outputs by mean absolute SHAP.
         values_array = np.mean(np.abs(values_array), axis=2)
 
     if values_array.ndim == 2:
@@ -444,25 +410,29 @@ def normalize_shap_values(shap_values: Any) -> np.ndarray:
 
 
 def get_base_value(shap_values: Any) -> Any:
-    """
-    Extract SHAP expected/base value in JSON-safe form.
-    """
+    """Extract SHAP expected/base value in JSON-safe form."""
     try:
         if hasattr(shap_values, "base_values"):
             base_values = np.asarray(shap_values.base_values)
+
             if base_values.ndim == 0:
                 return float(base_values)
+
             if base_values.size == 1:
                 return float(base_values.ravel()[0])
+
             return [float(value) for value in base_values.ravel()[:10]]
 
         if hasattr(shap_values, "expected_value"):
             value = shap_values.expected_value
+
             if isinstance(value, (list, tuple, np.ndarray)):
-                arr = np.asarray(value).ravel()
-                return [float(item) for item in arr[:10]]
+                array = np.asarray(value).ravel()
+                return [float(item) for item in array[:10]]
+
             return float(value)
-    except Exception:
+
+    except (TypeError, ValueError, AttributeError):
         return None
 
     return None
@@ -475,17 +445,7 @@ def summarize_shap_values(
     sample_index_values: list[Any],
     top_n: int,
 ) -> dict[str, Any]:
-    """
-    Build global and local SHAP summaries.
-
-    Global:
-    - mean_abs_shap
-    - mean_shap
-    - positive/negative direction
-
-    Local:
-    - top positive/negative contributors for first few sampled rows
-    """
+    """Build global and local SHAP summaries."""
     if shap_values_array.size == 0:
         return {
             "global_importance": [],
@@ -508,7 +468,7 @@ def summarize_shap_values(
             "feature": feature_names,
             "mean_abs_shap": mean_abs.astype(float),
             "mean_shap": mean_signed.astype(float),
-        }
+        },
     )
     global_df["direction"] = np.where(
         global_df["mean_shap"] >= 0,
@@ -538,30 +498,32 @@ def summarize_shap_values(
                 "feature": feature_names,
                 "shap_value": row_values.astype(float),
                 "feature_value": row_feature_values,
-            }
+            },
         )
         row_df["abs_shap_value"] = row_df["shap_value"].abs()
 
         local_explanations.append(
             {
                 "sample_position": int(row_idx),
-                "sample_index": str(sample_index_values[row_idx])
-                if row_idx < len(sample_index_values)
-                else str(row_idx),
+                "sample_index": (
+                    str(sample_index_values[row_idx])
+                    if row_idx < len(sample_index_values)
+                    else str(row_idx)
+                ),
                 "top_contributors": records_from_dataframe(
-                    row_df.sort_values("abs_shap_value", ascending=False).head(top_n)
+                    row_df.sort_values("abs_shap_value", ascending=False).head(top_n),
                 ),
                 "top_positive": records_from_dataframe(
                     row_df[row_df["shap_value"] > 0]
                     .sort_values("shap_value", ascending=False)
-                    .head(top_n)
+                    .head(top_n),
                 ),
                 "top_negative": records_from_dataframe(
                     row_df[row_df["shap_value"] < 0]
                     .sort_values("shap_value", ascending=True)
-                    .head(top_n)
+                    .head(top_n),
                 ),
-            }
+            },
         )
 
     return {
@@ -578,11 +540,7 @@ def generate_shap_bar_plot_base64(
     feature_names: list[str],
     max_features: int,
 ) -> str | None:
-    """
-    Generate SHAP summary bar plot as base64 PNG.
-
-    This avoids returning matplotlib figure objects in workflow output.
-    """
+    """Generate SHAP summary bar plot as base64 PNG."""
     try:
         import matplotlib.pyplot as plt
 
@@ -607,7 +565,7 @@ def generate_shap_bar_plot_base64(
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 
-    except Exception as error:
+    except (ImportError, RuntimeError, ValueError, TypeError) as error:
         logger.warning("Could not generate SHAP bar plot: %s", error)
         return None
 
@@ -619,9 +577,7 @@ def generate_shap_beeswarm_plot_base64(
     feature_names: list[str],
     max_features: int,
 ) -> str | None:
-    """
-    Generate SHAP beeswarm/summary plot as base64 PNG.
-    """
+    """Generate SHAP beeswarm/summary plot as base64 PNG."""
     try:
         import matplotlib.pyplot as plt
 
@@ -645,7 +601,7 @@ def generate_shap_beeswarm_plot_base64(
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 
-    except Exception as error:
+    except (ImportError, RuntimeError, ValueError, TypeError) as error:
         logger.warning("Could not generate SHAP beeswarm plot: %s", error)
         return None
 
@@ -660,20 +616,12 @@ def run_shap_explainability(
     generate_plots: bool,
     plot_max_features: int,
 ) -> dict[str, Any]:
-    """
-    Run real SHAP explainability safely.
-
-    Output includes:
-    - global mean absolute SHAP importance
-    - positive/negative global contributors
-    - local explanations for first few samples
-    - optional base64 PNG plots for Streamlit display
-    """
+    """Run real SHAP explainability safely."""
     shap = import_shap_module()
 
     if shap is None:
         return empty_shap_result(
-            message="SHAP is not installed. Install it with: pip install shap"
+            message="SHAP is not installed. Install it with: pip install shap",
         )
 
     try:
@@ -682,7 +630,7 @@ def run_shap_explainability(
 
         if transformed_array.size == 0:
             return empty_shap_result(
-                message="No transformed features available for SHAP."
+                message="No transformed features available for SHAP.",
             )
 
         if is_tree_model(estimator):
@@ -696,7 +644,6 @@ def run_shap_explainability(
             shap_method = "linear_shap"
 
         else:
-            # Model-agnostic fallback. It is slower but works for many sklearn pipelines.
             background = raw_sample_features.head(min(50, len(raw_sample_features)))
             explainer = shap.Explainer(model_pipeline.predict, background)
             raw_shap_values = explainer(raw_sample_features)
@@ -756,7 +703,7 @@ def run_shap_explainability(
             "message": "Real SHAP explainability generated successfully.",
         }
 
-    except Exception as error:
+    except (AttributeError, TypeError, ValueError, RuntimeError) as error:
         logger.warning("SHAP explainability skipped: %s", error)
         return empty_shap_result(message=f"SHAP explainability skipped: {error}")
 
@@ -765,9 +712,7 @@ def empty_shap_result(
     message: str,
     method: str = "shap",
 ) -> dict[str, Any]:
-    """
-    Return a consistent empty SHAP result schema.
-    """
+    """Return a consistent empty SHAP result schema."""
     return {
         "available": False,
         "method": method,
@@ -785,14 +730,11 @@ def generate_explainability_summary(
     builtin_importance: dict[str, Any],
     shap_result: dict[str, Any],
 ) -> dict[str, Any]:
-    """
-    Build concise explainability summary for UI/report.
-    """
+    """Build concise explainability summary for UI/report."""
     if shap_result.get("available"):
         source = "shap"
-        top_features = (
-            shap_result.get("global_importance", [])
-            or shap_result.get("top_features", [])
+        top_features = shap_result.get("global_importance", []) or shap_result.get(
+            "top_features", []
         )
     elif builtin_importance.get("available"):
         source = "built_in"
@@ -811,25 +753,27 @@ def generate_explainability_summary(
     return {
         "preferred_source": source,
         "top_feature": top_feature,
-        "num_features_reported": len(top_features) if isinstance(top_features, list) else 0,
+        "num_features_reported": len(top_features)
+        if isinstance(top_features, list)
+        else 0,
         "message": get_summary_message(source, top_feature),
     }
 
 
 def get_summary_message(source: str, top_feature: str | None) -> str:
-    """
-    Human-readable explainability message.
-    """
+    """Return a human-readable explainability message."""
     if source == "shap":
         return (
-            f"Real SHAP explainability is available. The most influential feature by mean absolute SHAP is '{top_feature}'."
+            "Real SHAP explainability is available. The most influential feature "
+            f"by mean absolute SHAP is '{top_feature}'."
             if top_feature
             else "Real SHAP explainability is available."
         )
 
     if source == "built_in":
         return (
-            f"Built-in feature importance is available. The most influential feature is '{top_feature}'."
+            "Built-in feature importance is available. The most influential "
+            f"feature is '{top_feature}'."
             if top_feature
             else "Built-in feature importance is available."
         )
@@ -845,7 +789,7 @@ def run_model_explainability(
     sample_features: pd.DataFrame | None,
 ) -> dict[str, Any]:
     """
-    Generate built-in feature importance and real optional SHAP explanations.
+    Generate built-in feature importance and optional real SHAP explanations.
 
     Parameters
     ----------
@@ -880,13 +824,18 @@ def run_model_explainability(
             }
 
         best_model = baseline_results.get("best_model", {})
+        if not isinstance(best_model, dict):
+            raise ExplainabilityError("best_model must be a dictionary.")
+
         best_model_name = best_model.get("model_name", "N/A")
         model_pipeline = get_best_model_pipeline(baseline_results)
 
         preprocessor, estimator = get_pipeline_parts(model_pipeline)
 
         if estimator is None:
-            raise ExplainabilityError("Could not extract estimator from model pipeline.")
+            raise ExplainabilityError(
+                "Could not extract estimator from model pipeline."
+            )
 
         sample = sample_dataframe(
             df=sample_features,
@@ -917,7 +866,7 @@ def run_model_explainability(
             )
         else:
             shap_result = empty_shap_result(
-                message="SHAP is disabled in config.yaml."
+                message="SHAP is disabled in config.yaml.",
             )
 
         summary = generate_explainability_summary(
@@ -925,19 +874,21 @@ def run_model_explainability(
             shap_result=shap_result,
         )
 
-        report = {
+        report: dict[str, Any] = {
             "enabled": True,
             "available": bool(
-                builtin_importance.get("available") or shap_result.get("available")
+                builtin_importance.get("available") or shap_result.get("available"),
             ),
-            "best_model_name": best_model_name,
+            "best_model_name": str(best_model_name),
             "best_model": best_model,
             "model_type": get_estimator_name(estimator),
             "sample_rows_used": int(len(sample)),
             "transformed_feature_count": int(len(feature_names)),
-            "transformed_shape": list(transformed_array.shape)
-            if hasattr(transformed_array, "shape")
-            else None,
+            "transformed_shape": (
+                list(transformed_array.shape)
+                if hasattr(transformed_array, "shape")
+                else None
+            ),
             "config": {
                 "run_shap": bool(config["run_shap"]),
                 "max_samples": int(config["max_samples"]),
@@ -968,8 +919,7 @@ def run_model_explainability(
 
     except ExplainabilityError:
         raise
-
-    except Exception as error:
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
         logger.exception("Explainability generation failed.")
         raise ExplainabilityError(
             "Explainability generation failed.",
@@ -980,26 +930,26 @@ def run_model_explainability(
 if __name__ == "__main__":
     from src.audit.baseline_models import train_baseline_models
     from src.audit.preprocessing import split_features_target
-    from src.audit.profiler import load_dataset
     from src.audit.problem_detector import detect_problem_type
+    from src.audit.profiler import load_dataset
 
     dataset_path = "data/sample/student_mark.csv"
     target_column = "Grade"
 
-    df = load_dataset(dataset_path)
-    problem_info = detect_problem_type(df, target_column)
+    dataframe = load_dataset(dataset_path)
+    problem_info = detect_problem_type(dataframe, target_column)
 
     baseline = train_baseline_models(
-        df=df,
+        df=dataframe,
         target_column=target_column,
         problem_type=problem_info["problem_type"],
     )
 
-    X, _ = split_features_target(df, target_column)
+    features, _ = split_features_target(dataframe, target_column)
 
     explanation = run_model_explainability(
         baseline_results=baseline,
-        sample_features=X,
+        sample_features=features,
     )
 
     print(explanation)

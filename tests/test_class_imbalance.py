@@ -1,6 +1,7 @@
 """
 Tests for src/audit/class_imbalance.py.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -89,10 +90,7 @@ def test_severity_thresholds_are_monotonic():
     severity_order = ["low", "moderate", "high", "severe"]
     ratios = [1.0, 2.0, 5.0, 20.0]
 
-    severities = [
-        get_imbalance_severity(ratio, rare_classes={})
-        for ratio in ratios
-    ]
+    severities = [get_imbalance_severity(ratio, rare_classes={}) for ratio in ratios]
 
     indices = [severity_order.index(severity) for severity in severities]
     assert indices == sorted(indices)
