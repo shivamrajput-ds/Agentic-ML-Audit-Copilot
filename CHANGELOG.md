@@ -1,92 +1,90 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to **Agentic ML Audit Copilot** are documented in this file.
 
-The format is inspired by *Keep a Changelog* and follows semantic versioning where practical.
+This project follows the principles of **Keep a Changelog** and **Semantic Versioning (SemVer)**.
 
 ---
 
-# [1.0.0] - 2026-07
+# [1.0.0] - 2026-07-09
 
-## Initial Release
+## 🎉 Initial Release
 
-### Added
+### ✨ Added
 
-- Initial project architecture
-- Modular audit workflow
-- Dataset profiling
-- Problem type detection
-- Data quality audit
-- Leakage detection
-- Metric recommendation
-- Class imbalance detection
-- Automated preprocessing pipeline
-- Baseline model training
-- SHAP explainability
+- End-to-end deterministic ML audit workflow
+- Dataset profiling and statistical summary
+- Automatic problem type detection
+- Data quality assessment
+- Possible data leakage risk detection (human review required)
+- Class imbalance analysis
+- Evaluation metric recommendation
+- Scikit-learn preprocessing pipeline
+- Baseline model benchmarking
+- SHAP explainability and feature importance
 - MLflow experiment tracking
 - LangGraph workflow orchestration
 - FastAPI REST API
-- Streamlit dashboard
-- Human Review Dashboard
-- Markdown report generation
-- JSON report generation
+- Interactive Streamlit dashboard
+- Human-in-the-loop review workflow
+- AI-powered audit report generation
+- Markdown and JSON report export
 - Docker support
-- GitHub Actions CI
-- Automated test suite
-
-### Improved
-
-- Modular project structure
-- Configuration-driven behavior
-- Logging
-- Exception handling
-- Project documentation
-- Repository organization
-
-### Fixed
-
-- Preprocessing pipeline initialization
-- Explainability integration
-- Docker configuration
-- Dependency compatibility
-- SHAP version compatibility
-- Import issues
-- API serialization improvements
+- GitHub Actions CI pipeline
+- Comprehensive pytest test suite
 
 ---
 
-# Future Releases
+### 🚀 Improved
 
-Planned improvements include
+- Modular project architecture
+- Configuration-driven application behavior
+- Structured logging
+- Centralized exception handling
+- Production-oriented repository structure
+- Documentation and developer experience
+- Code quality with Ruff formatting and linting
+- Type hints and maintainability
+
+---
+
+### 🐛 Fixed
+
+- Preprocessing pipeline initialization issues
+- Explainability integration edge cases
+- Docker startup configuration
+- Dependency version compatibility
+- SHAP compatibility with NumPy
+- Import resolution issues
+- API serialization improvements
+- MLflow logging reliability
+- Workflow stability and error handling
+
+---
+
+# 🚀 Roadmap
+
+Planned future improvements include:
 
 - Data Drift Detection
 - Feature Drift Detection
-- Dask support
-- Polars support
-- PDF reports
-- HTML reports
-- Hyperparameter optimization
-- Authentication
-- Team workspaces
-- Kubernetes deployment
+- Fairness & Bias Analysis
+- Hyperparameter Optimization
+- PDF Audit Reports
+- HTML Audit Reports
+- Polars Support
+- Dask Support
+- Authentication & User Management
+- Team Workspaces
+- Kubernetes Deployment
+- Cloud Deployment Templates
 
 ---
 
-## Versioning
+# Versioning
 
-The project currently follows a simple versioning strategy.
+This project follows Semantic Versioning.
 
-Major version
-
-- Significant architectural changes
-
-Minor version
-
-- New features
-- New audit modules
-
-Patch version
-
-- Bug fixes
-- Documentation improvements
-- Performance improvements
+- **Major** – Breaking architectural or API changes
+- **Minor** – New features, audit modules, or capabilities
+- **Patch** – Bug fixes, documentation updates, performance improvements, and maintenance releases

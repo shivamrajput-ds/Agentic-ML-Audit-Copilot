@@ -2,182 +2,201 @@
 
 ## Overview
 
-The `assets/` directory contains all visual resources used throughout the project documentation, dashboard, and GitHub repository.
+The `assets/` directory contains all visual resources used throughout **Agentic ML Audit Copilot**.
 
-These assets help explain the system architecture, workflow, dashboard, and overall project structure.
+These assets are referenced in the README, project documentation, GitHub repository, Docker Hub, and YouTube demonstration to illustrate the application's architecture, workflow, user interface, and deployment.
 
 ---
 
-# Folder Structure
+# Directory Structure
 
-```
+```text
 assets/
 │
 ├── branding/
 │   ├── app_logo.png
-│   ├── banner.png
 │   ├── cover_image.png
-│   └── favicon.png
+│   ├── youtube_banner.png
+│   ├── youtube_profile.png
+│   └── youtube_thumbnail.png
+│
+├── demo/
+│   ├── demo_gif.gif
+│   ├── youtube_demo.png
+│   └── youtube_demo.txt
 │
 ├── diagrams/
 │   ├── architecture.png
 │   ├── audit_pipeline.png
-│   ├── workflow_graph.png
+│   ├── deployment_architecture.png
 │   ├── langgraph_flow.png
 │   ├── preprocessing_pipeline.png
-│   └── system_design.png
+│   ├── repository_structure.png
+│   ├── system_design.png
+│   └── workflow_graph.png
 │
-├── screenshots/
-│   ├── ai_chatbot.png
-│   ├── api_docs.png
-│   ├── audit_report.png
-│   ├── audit_score.png
-│   ├── baseline_models.png
-│   ├── class_imbalance.png
-│   ├── data_quality.png
-│   ├── dataset_upload.png
-│   ├── explainability_shap.png
-│   ├── feature_importance.png
-│   ├── leakage_risks.png
-│   ├── metric_recommendation.png
-│   ├── mlflow_tracking.png
-│   ├── profiler.png
-│   ├── streamlit_home.png
-│   ├── swagger_ui.png
-│   ├── test_suite.png
-│   └── ci_pipeline.png
-│
-└── demo/
-    └── demo.gif
+└── screenshots/
+    ├── api_docs.png
+    ├── audit_report.png
+    ├── baseline_models.png
+    ├── ci_passed.png
+    ├── data_quality.png
+    ├── dataset_upload.png
+    ├── docker_hub.png
+    ├── explainability_shap.png
+    ├── feature_importance.png
+    ├── leakage_risks.png
+    ├── metric_recommendation.png
+    ├── mlflow_tracking.png
+    ├── streamlit_home.png
+    ├── swagger_ui.png
+    └── test_suite.png
 ```
 
 ---
 
-# Branding
+# Branding Assets
 
-The branding folder contains images used throughout the repository.
+The branding folder contains project identity resources.
 
 | Asset | Purpose |
 |--------|----------|
-| app_logo.png | Application logo |
-| banner.png | README banner |
-| cover_image.png | Social preview image |
-| favicon.png | Browser icon |
+| `app_logo.png` | Application logo |
+| `cover_image.png` | GitHub social preview |
+| `youtube_banner.png` | YouTube channel banner |
+| `youtube_profile.png` | YouTube profile picture |
+| `youtube_thumbnail.png` | Project video thumbnail |
 
 ---
 
 # Architecture Diagrams
 
-These diagrams explain the overall design of the application.
+These diagrams explain the overall system design.
 
 | Diagram | Description |
 |----------|-------------|
-| architecture.png | High-level system architecture |
-| audit_pipeline.png | End-to-end audit pipeline |
-| workflow_graph.png | Complete audit workflow |
-| langgraph_flow.png | LangGraph execution flow |
-| preprocessing_pipeline.png | Data preprocessing pipeline |
-| system_design.png | Overall component interaction |
+| `architecture.png` | High-level architecture |
+| `audit_pipeline.png` | End-to-end audit pipeline |
+| `deployment_architecture.png` | Deployment overview |
+| `langgraph_flow.png` | LangGraph execution flow |
+| `preprocessing_pipeline.png` | Data preprocessing workflow |
+| `repository_structure.png` | Repository organization |
+| `system_design.png` | System components |
+| `workflow_graph.png` | Audit workflow graph |
 
 ---
 
-# Dashboard Screenshots
+# Application Screenshots
 
-The screenshots folder contains images captured from the running application.
+The `screenshots/` directory contains images captured from the running application.
 
-Examples include
+Current screenshots include:
 
-- Home dashboard
+- Streamlit home page
 - Dataset upload
-- Data quality report
-- Leakage detection
-- Baseline model results
+- Data quality audit
+- Leakage analysis
+- Metric recommendation
+- Baseline model comparison
 - SHAP explainability
+- Feature importance
 - MLflow tracking
-- Generated audit report
+- Audit report
+- FastAPI Swagger UI
+- GitHub Actions CI
+- Docker Hub image
+- Test suite results
 
-These images are referenced throughout the README and documentation.
+These screenshots are referenced throughout the README and documentation.
 
 ---
 
-# Demo
+# Demo Assets
 
-The demo folder contains a short screen recording of the application.
+The `demo/` directory contains project demonstration resources.
 
-Recommended duration
+| File | Purpose |
+|------|----------|
+| `demo_gif.gif` | Short application walkthrough |
+| `youtube_demo.png` | YouTube video preview |
+| `youtube_demo.txt` | YouTube demo URL |
 
-- 20–60 seconds
+Example:
 
-Suggested flow
-
-1. Launch Streamlit
-2. Upload dataset
-3. Select target column
-4. Run audit
-5. Review dashboard
-6. Download report
+```text
+https://youtu.be/kFzNam74QBc
+```
 
 ---
 
 # Image Guidelines
 
-Recommended format
+Recommended formats:
 
 - PNG for screenshots
-- GIF for demo
-- SVG where appropriate for diagrams
+- GIF for demonstrations
+- SVG (optional) for diagrams
 
-Recommended resolution
+Recommended resolution:
 
 - 1920 × 1080
 - 2560 × 1440
 
-Keep screenshots clean and avoid including unnecessary desktop elements.
+Recommendations:
+
+- Keep screenshots clean.
+- Crop unnecessary desktop elements.
+- Maintain consistent resolution.
+- Use clear labels where appropriate.
 
 ---
 
 # Naming Convention
 
-Use lowercase names with underscores.
+Use lowercase filenames with underscores.
 
-Examples
+Examples:
 
-```
+```text
 streamlit_home.png
-```
-
-```
 mlflow_tracking.png
-```
-
-```
 feature_importance.png
+deployment_architecture.png
 ```
 
-Avoid names such as
+Avoid names such as:
 
-```
+```text
 Screenshot (1).png
-```
-
-or
-
-```
-image_final_new.png
+final_latest.png
+image_new.png
 ```
 
 ---
 
 # Updating Assets
 
-When updating an image
+When replacing an image:
 
 - Keep the same filename whenever possible.
-- Replace only if the new version improves clarity.
-- Ensure the README still references the correct path.
+- Replace only if the new version improves quality.
+- Verify that all documentation still references the correct path.
+- Remove outdated or duplicate assets.
+
+---
+
+# Best Practices
+
+- Keep diagrams synchronized with the latest architecture.
+- Update screenshots after major UI changes.
+- Compress images without noticeable quality loss.
+- Store only repository-related assets.
+- Keep demo GIFs under reasonable file sizes.
 
 ---
 
 # Summary
 
-The assets directory provides all visual resources required for the documentation and GitHub repository. Keeping images organized and consistently named makes the project easier to maintain and improves the overall presentation.
+The `assets/` directory centralizes all visual resources used throughout the project.
+
+Maintaining a consistent naming convention and organized directory structure improves documentation quality, repository maintainability, and the overall presentation of **Agentic ML Audit Copilot**.

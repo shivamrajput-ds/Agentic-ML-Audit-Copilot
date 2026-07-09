@@ -2,22 +2,22 @@
 
 ## Overview
 
-Agentic ML Audit Copilot includes an automated test suite to verify the correctness and reliability of the core audit modules.
+Agentic ML Audit Copilot includes an automated test suite to verify the correctness, reliability, and stability of the core audit workflow.
 
-The goal of testing is to ensure that each module behaves consistently across different datasets and common edge cases.
+The project follows a deterministic-first philosophy, ensuring that ML computations produce consistent and reproducible results across supported environments.
 
 ---
 
 # Testing Framework
 
-The project uses
+The project uses:
 
 - pytest
 - pytest-cov (optional)
 
-Tests are located inside
+Tests are located in:
 
-```
+```text
 tests/
 ```
 
@@ -25,67 +25,74 @@ tests/
 
 # Test Coverage
 
-Current test coverage includes the following modules.
+The current automated test suite covers:
 
 | Module | Status |
-|----------|---------|
-| Baseline Models | ✅ |
-| Class Imbalance | ✅ |
-| Data Quality | ✅ |
+|----------|:------:|
+| Dataset Profiling | ✅ |
+| Problem Type Detection | ✅ |
+| Data Quality Audit | ✅ |
 | Leakage Detection | ✅ |
-| Problem Detection | ✅ |
-| Preprocessing | ✅ |
+| Class Imbalance | ✅ |
+| Preprocessing Pipeline | ✅ |
+| Baseline Models | ✅ |
 
 ---
 
 # Running All Tests
 
-Execute the complete test suite.
+Run the complete test suite:
 
 ```bash
-python -m pytest -v
+uv run pytest
 ```
 
-Expected output
+Verbose output:
 
+```bash
+uv run pytest -v
 ```
-==========================
+
+Expected output:
+
+```text
+==============================
 96 passed
-==========================
+==============================
 ```
 
 ---
 
-# Running a Single Test File
+# Run a Single Test File
 
-Example
+Example:
 
 ```bash
-python -m pytest tests/test_data_quality.py -v
+uv run pytest tests/test_data_quality.py -v
 ```
 
 ---
 
-# Running a Specific Test
+# Run a Specific Test
 
-Example
+Example:
 
 ```bash
-python -m pytest tests/test_data_quality.py::test_detects_missing_values -v
+uv run pytest tests/test_data_quality.py::test_detects_missing_values -v
 ```
 
 ---
 
 # Test Dataset Strategy
 
-The project uses synthetic datasets created entirely in memory.
+The test suite uses synthetic datasets created entirely in memory.
 
-This approach provides
+Benefits include:
 
 - Fast execution
 - Deterministic behavior
 - No dependency on external CSV files
-- Repeatable results
+- Repeatable test results
 
 ---
 
@@ -93,155 +100,174 @@ This approach provides
 
 ## Dataset Profiling
 
-The profiler is tested for
+Current tests include:
 
 - Empty datasets
-- Invalid datasets
 - Missing values
 - Duplicate rows
+- Invalid datasets
+- Invalid target columns
 
 ---
 
-## Problem Detection
+## Problem Type Detection
 
-Test cases include
+Current tests include:
 
 - Binary classification
 - Multiclass classification
 - Regression
-- Constant target
-- Missing target
+- Constant targets
+- Integer-like regression targets
+- Missing targets
 
 ---
 
-## Data Quality
+## Data Quality Audit
 
-Current tests verify
+Current tests verify:
 
 - Missing values
 - Duplicate rows
 - Constant columns
-- Possible identifier columns
+- Identifier columns
+- Invalid datasets
 
 ---
 
 ## Leakage Detection
 
-Current checks include
+Current tests verify:
 
-- Duplicate target columns
 - Target-like column names
-- Leakage warnings
+- Duplicate target columns
+- Identifier-based leakage risks
+- Correlation-based leakage checks
 - False-positive protection
+
+> **Note**
+>
+> The application reports **possible leakage risks** only.
+> Leakage is never treated as confirmed automatically.
 
 ---
 
 ## Class Imbalance
 
-Verified scenarios
+Current tests verify:
 
 - Balanced datasets
-- Mild imbalance
+- Moderate imbalance
 - Severe imbalance
 - Regression datasets
 
 ---
 
-## Preprocessing
+## Preprocessing Pipeline
 
-Tests verify
+Current tests verify:
 
 - Feature separation
-- Pipeline creation
-- Train/Test split
+- Train/test split
+- Sklearn preprocessing pipeline
 - Invalid parameters
+- Missing values
 
 ---
 
 ## Baseline Models
 
-Verified
+Current tests verify:
 
-- Classification models
-- Regression models
+- Classification baselines
+- Regression baselines
 - Missing target handling
-- Invalid problem type
+- Invalid problem types
 - Best model selection
+- Metric calculation
 
 ---
 
 # Test Screenshot
 
-![](../assets/screenshots/test_suite.png)
+![Test Suite](../assets/screenshots/test_suite.png)
 
 ---
 
 # Continuous Integration
 
-Every push triggers GitHub Actions.
+Every push and pull request automatically triggers GitHub Actions.
 
-The pipeline performs
+The CI pipeline performs:
 
 - Dependency installation
-- Ruff lint checks
+- Ruff formatting check
+- Ruff linting
 - Automated test execution
 
-If any test fails, the workflow fails automatically.
+If any step fails, the workflow is marked as failed.
 
 ---
 
 # Writing New Tests
 
-Recommended structure
+Recommended structure:
 
 ```python
 def test_example():
     ...
 ```
 
-Each new feature should include
+Each new feature should include:
 
 - Success case
 - Invalid input
 - Edge case
+- Regression test (when applicable)
 
 ---
 
 # Best Practices
 
 - Keep tests independent.
-- Avoid relying on external files.
-- Use synthetic datasets whenever possible.
-- Prefer deterministic assertions.
-- Test edge cases in addition to standard cases.
+- Prefer synthetic datasets.
+- Avoid network dependencies.
+- Avoid external files unless necessary.
+- Use deterministic assertions.
+- Test both expected and edge-case behavior.
 
 ---
 
 # Current Status
 
-Current automated test suite
+Current project status:
 
+```text
+✓ 96 Tests Passed
+✓ Ruff Formatting
+✓ Ruff Linting
+✓ GitHub Actions CI
+✓ Docker Build Verified
 ```
-96 Tests Passed
-```
-
-The project uses testing as a quality check before new changes are merged into the main branch.
 
 ---
 
 # Future Improvements
 
-Potential testing enhancements include
+Planned testing enhancements:
 
-- Integration tests
-- API tests
+- FastAPI integration tests
 - Streamlit UI tests
-- Docker validation
-- Performance benchmarks
+- Docker validation tests
 - End-to-end workflow tests
+- Performance benchmarks
+- Stress testing
+- Model reproducibility tests
 
 ---
 
 # Summary
 
-The automated test suite validates the core functionality of the audit pipeline and helps ensure that changes do not introduce regressions. The current coverage focuses on deterministic behavior, common edge cases, and the reliability of the primary audit modules.
+The automated test suite validates the deterministic audit workflow and helps prevent regressions as the project evolves.
+
+Testing focuses on correctness, reproducibility, maintainability, and production-oriented reliability.

@@ -2,56 +2,58 @@
 
 ## Overview
 
-Agentic ML Audit Copilot is designed to audit tabular machine learning datasets before model training.
+**Agentic ML Audit Copilot** is designed to audit tabular machine learning datasets before model development.
 
-The current implementation intentionally focuses on the most common machine learning workflows while keeping the architecture modular and easy to understand.
+The project intentionally focuses on deterministic, reproducible, and modular ML auditing rather than supporting every possible machine learning workflow.
 
-This document describes the current limitations of the project.
+This document describes the current limitations of the project and highlights areas planned for future development.
 
 ---
 
 # Supported Dataset Formats
 
-Currently supported
+Currently supported:
 
 - CSV (.csv)
 
-Not currently supported
+Planned support:
 
 - Excel (.xlsx)
 - Parquet
 - JSON
-- SQL Databases
-- Data Warehouses
+- SQL databases
+- Cloud storage connectors
 
 ---
 
 # Dataset Size
 
-The application is optimized for small to medium-sized datasets.
+The application is optimized for **small to medium-sized tabular datasets**.
 
-Very large datasets may require significant memory because Pandas performs in-memory processing.
+Since preprocessing is currently performed using Pandas, very large datasets may require substantial memory.
 
-Future versions may include
+Future improvements may include:
 
 - Polars
 - Dask
 - Chunk-based processing
+- Out-of-core execution
 
 ---
 
-# Machine Learning Tasks
+# Supported Machine Learning Tasks
 
-Currently supported
+Current support:
 
 - Binary Classification
 - Multiclass Classification
 - Regression
 
-Not currently supported
+Not currently supported:
 
 - Time Series Forecasting
 - Clustering
+- Survival Analysis
 - Recommendation Systems
 - Reinforcement Learning
 
@@ -59,75 +61,83 @@ Not currently supported
 
 # Leakage Detection
 
-The leakage module detects possible leakage risks.
+The leakage module reports **possible leakage risks** only.
 
-Examples
+Current checks include:
 
-- Duplicate target columns
 - Target-like column names
-- High feature correlation
-- Proxy features
+- Identifier columns
+- Highly correlated features
+- Proxy feature detection
+- Duplicate target-like columns
 
-The system does not guarantee that leakage is confirmed.
+The application intentionally **does not automatically confirm leakage**.
 
-Final validation should always be performed by the user.
+Human review is required before making modeling decisions.
 
 ---
 
-# Data Quality
+# Data Quality Checks
 
-Current checks include
+Current checks include:
 
 - Missing values
 - Duplicate rows
 - Constant columns
 - High-cardinality columns
 - Identifier-like columns
+- Basic dataset statistics
 
-Additional checks such as schema validation and data contracts are not yet implemented.
+Currently not included:
+
+- Schema validation
+- Data contracts
+- Business rule validation
+- Cross-dataset consistency checks
 
 ---
 
 # Explainability
 
-Explainability currently includes
+Current explainability features:
 
 - SHAP values
 - Feature importance
 
-Additional techniques such as
+Future improvements may include:
 
-- Partial Dependence Plots
+- Partial Dependence Plots (PDP)
 - ICE Plots
 - LIME
-
-are not included in the current version.
+- Counterfactual explanations
 
 ---
 
-# Baseline Models
+# Baseline Modeling
 
-The project trains baseline models only.
+The application trains baseline models only.
 
-Classification
+Classification:
 
 - Logistic Regression
 - Random Forest Classifier
 
-Regression
+Regression:
 
 - Linear Regression
 - Random Forest Regressor
 
-Hyperparameter optimization is outside the current scope.
+The objective is benchmarking rather than maximizing predictive performance.
+
+Hyperparameter optimization is intentionally outside the current scope.
 
 ---
 
 # Distributed Computing
 
-The current implementation runs on a single machine.
+The application currently executes on a single machine.
 
-Distributed processing frameworks such as
+Distributed execution frameworks such as:
 
 - Spark
 - Ray
@@ -137,75 +147,77 @@ are not yet supported.
 
 ---
 
-# Authentication
+# Authentication & User Management
 
-The application currently does not include
+The application currently does not include:
 
 - User authentication
 - Authorization
 - Role-based access control
+- Multi-user accounts
 
-The dashboard is intended for local use and demonstrations.
+The dashboard is intended primarily for local usage, demonstrations, and portfolio purposes.
 
 ---
 
 # API Security
 
-Current API implementation does not include
+The FastAPI application currently does not include:
 
-- API keys
 - JWT authentication
 - OAuth2
+- API key authentication
 - Rate limiting
 
-These features are planned for future versions.
+These capabilities are planned for future releases.
 
 ---
 
 # Streamlit Dashboard
 
-The dashboard supports one audit session at a time.
+Current limitations include:
 
-Features such as
-
-- User accounts
-- Shared workspaces
-- Multi-user collaboration
-
-are not available.
+- Single-user sessions
+- No collaborative workspaces
+- No persistent project history
+- No user account management
 
 ---
 
-# Experiment Tracking
+# MLflow Tracking
 
-MLflow tracks experiments locally.
+MLflow experiments are tracked locally by default.
 
-Remote tracking servers are supported through configuration but are not configured by default.
+Remote MLflow servers are supported through configuration but are not configured automatically.
 
 ---
 
-# Reports
+# Report Generation
 
-Current report formats
+Current report formats:
 
 - Markdown
 - JSON
 
-PDF and HTML report generation are planned for future releases.
+Future formats may include:
+
+- PDF
+- HTML
 
 ---
 
 # Testing
 
-The automated test suite focuses on core functionality.
+The automated test suite focuses primarily on deterministic audit modules.
 
-Future improvements may include
+Future improvements may include:
 
-- Integration tests
-- API tests
-- UI tests
-- Docker validation
-- Performance testing
+- FastAPI integration tests
+- Streamlit UI tests
+- Docker validation tests
+- End-to-end workflow tests
+- Performance benchmarks
+- Load testing
 
 ---
 
@@ -213,36 +225,51 @@ Future improvements may include
 
 The project includes Docker support.
 
-Production deployment topics such as
+However, the following production capabilities are intentionally outside the current scope:
 
-- Kubernetes
-- Monitoring
+- Kubernetes deployment
+- Monitoring and alerting
 - Centralized logging
 - Auto-scaling
-
-are outside the current scope.
+- Service mesh integration
 
 ---
 
-# Future Improvements
+# LLM Limitations
 
-Potential enhancements include
+The LLM is used only for:
 
-- Polars support
-- Dask support
-- Excel support
+- Report generation
+- Audit explanations
+- Audit question answering
+
+The LLM **does not perform machine learning computations**.
+
+All deterministic ML operations are executed using Python and Scikit-learn.
+
+---
+
+# Future Roadmap
+
+Planned enhancements include:
+
 - Data Drift Detection
 - Feature Drift Detection
-- Fairness Analysis
+- Fairness & Bias Analysis
 - Hyperparameter Optimization
-- Cloud Storage Integration
-- Authentication
-- Team Collaboration
+- Time-Series Auditing
+- Excel & Parquet Support
+- Polars Integration
+- Dask Integration
+- Cloud Storage Support
+- Authentication & User Management
+- Team Workspaces
+- Kubernetes Deployment
 
 ---
 
 # Summary
 
-The current version provides a complete workflow for auditing tabular machine learning datasets before model training.
+Agentic ML Audit Copilot provides a production-oriented, deterministic workflow for auditing tabular machine learning datasets before model development.
 
-While some advanced enterprise capabilities are intentionally outside the project's scope, the modular architecture allows these features to be added in future releases without major structural changes.
+While several advanced enterprise capabilities are intentionally outside the current scope, the modular architecture allows these features to be integrated in future releases with minimal architectural changes.

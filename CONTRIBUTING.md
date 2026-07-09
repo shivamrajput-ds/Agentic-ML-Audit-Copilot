@@ -1,186 +1,154 @@
 # Contributing
 
-Thank you for your interest in contributing to Agentic ML Audit Copilot.
+Thank you for your interest in contributing to **Agentic ML Audit Copilot**.
 
-Contributions that improve the project, fix bugs, enhance documentation, or add useful features are always welcome.
-
----
-
-# Before You Start
-
-Please take a few minutes to understand the project structure before making changes.
-
-Useful documentation
-
-- README.md
-- docs/ARCHITECTURE.md
-- docs/API.md
-- docs/USAGE.md
+Contributions that improve the project, fix bugs, enhance documentation, add tests, or introduce useful audit capabilities are welcome.
 
 ---
 
-# Ways to Contribute
+## Before You Start
 
-You can contribute by
+Please review the main project documentation:
+
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API.md`
+- `docs/USAGE.md`
+
+---
+
+## Ways to Contribute
+
+You can contribute by:
 
 - Fixing bugs
 - Improving documentation
-- Writing tests
+- Adding tests
 - Improving code quality
 - Optimizing performance
 - Adding new audit modules
-- Improving Streamlit UI
+- Improving the Streamlit dashboard
 - Improving FastAPI endpoints
+- Enhancing MLflow or explainability support
 
 ---
 
-# Development Setup
+## Development Setup
 
-Clone the repository
+Clone the repository:
 
 ```bash
 git clone https://github.com/shivamrajput-ds/Agentic-ML-Audit-Copilot.git
-
 cd Agentic-ML-Audit-Copilot
 ```
 
-Create virtual environment
-
-Using uv
+Create and activate a virtual environment:
 
 ```bash
 uv venv
-
-uv sync
 ```
 
-Or using Python
-
-```bash
-python -m venv .venv
-```
-
-Activate
-
-Windows
+Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
 
-Linux/macOS
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Install dependencies
+Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ---
 
-# Create a Branch
+## Run Quality Checks
 
-Create a new branch before making changes.
+Before creating a pull request, run:
+
+```bash
+uv run ruff format .
+uv run ruff check .
+uv run pytest
+```
+
+---
+
+## Coding Guidelines
+
+Please follow these guidelines:
+
+- Keep code simple, readable, and practical.
+- Keep functions focused on one responsibility.
+- Use descriptive variable and function names.
+- Use type hints where appropriate.
+- Avoid unnecessary over-engineering.
+- Keep preprocessing inside sklearn pipelines.
+- Do not hardcode secrets or API keys.
+- Do not claim confirmed leakage automatically.
+- Report leakage only as a possible risk requiring human review.
+
+---
+
+## Branch Naming
+
+Create a new branch before making changes:
 
 ```bash
 git checkout -b feature/your-feature-name
 ```
 
-Examples
+Examples:
 
-```
+```text
 feature/data-drift
-```
-
-```
 feature/improve-ui
-```
-
-```
 bugfix/leakage-check
+docs/update-readme
 ```
 
 ---
 
-# Coding Guidelines
+## Pull Request Checklist
 
-Please follow these guidelines
+Before submitting a pull request, verify that:
 
-- Write clear and readable code.
-- Keep functions focused on one responsibility.
-- Avoid unnecessary complexity.
-- Prefer descriptive variable names.
-- Use type hints where appropriate.
-- Add comments only when they improve understanding.
-
----
-
-# Testing
-
-Run the complete test suite before creating a pull request.
-
-```bash
-python -m pytest -v
-```
-
-Ensure that all tests pass successfully.
-
----
-
-# Linting
-
-Run Ruff before submitting changes.
-
-```bash
-ruff check .
-```
-
-Auto-fix
-
-```bash
-ruff check . --fix
-```
-
----
-
-# Pull Request Checklist
-
-Before submitting a Pull Request, verify that
-
-- Code builds successfully
 - Tests pass
-- Documentation is updated (if required)
-- No unnecessary files are included
+- Ruff linting passes
+- Ruff formatting passes
+- Documentation is updated if required
+- No unnecessary files are committed
+- No secrets are included
 - New functionality is explained clearly
 
 ---
 
-# Reporting Issues
+## Reporting Issues
 
-If you find a bug
-
-Please include
+When reporting a bug, include:
 
 - Description
 - Steps to reproduce
 - Expected behavior
 - Actual behavior
-- Environment information
-  - Operating System
-  - Python Version
-  - Package Version
+- Operating system
+- Python version
+- Relevant package versions
+- Screenshots or logs if helpful
 
 ---
 
-# Feature Requests
+## Feature Requests
 
 Feature requests are welcome.
 
-Please describe
+Please describe:
 
 - The problem
 - Proposed solution
@@ -189,65 +157,30 @@ Please describe
 
 ---
 
-# Documentation
-
-Documentation improvements are always appreciated.
-
-Examples
-
-- Fix spelling mistakes
-- Improve explanations
-- Add examples
-- Improve diagrams
-
----
-
-# Code Style
-
-The project follows
-
-- PEP 8
-- Meaningful function names
-- Modular design
-- Configuration-driven development
-
----
-
-# Commit Messages
+## Commit Messages
 
 Use short and descriptive commit messages.
 
-Examples
+Good examples:
 
 ```text
 Add SHAP summary visualization
-```
-
-```text
 Improve leakage detection
-```
-
-```text
 Fix preprocessing pipeline
+Update Docker setup
 ```
 
-Avoid
+Avoid:
 
 ```text
 update
-```
-
-```text
 changes
-```
-
-```text
 final final latest
 ```
 
 ---
 
-# Community
+## Community Guidelines
 
 Please be respectful when discussing issues or reviewing pull requests.
 
@@ -255,8 +188,6 @@ Constructive feedback is encouraged.
 
 ---
 
-# Thank You
+## Thank You
 
-Thank you for taking the time to contribute.
-
-Every contribution, whether it is code, documentation, testing, or feedback, helps improve the project.
+Thank you for helping improve **Agentic ML Audit Copilot**.

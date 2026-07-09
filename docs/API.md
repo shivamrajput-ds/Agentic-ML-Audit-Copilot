@@ -2,59 +2,74 @@
 
 ## Overview
 
-Agentic ML Audit Copilot exposes a REST API using FastAPI.
+**Agentic ML Audit Copilot** exposes a REST API built with **FastAPI**.
 
-The API allows applications to upload datasets, execute the audit workflow, and retrieve structured audit results.
+The API allows clients to upload tabular datasets, execute the complete deterministic audit workflow, and retrieve structured audit results.
 
-Interactive API documentation is available through Swagger UI.
+Interactive API documentation is automatically generated through Swagger UI and ReDoc.
 
 ---
 
 # Base URL
 
-Local
+Local development:
 
-```
+```text
 http://localhost:8000
 ```
 
-Swagger UI
+Swagger UI:
 
-```
+```text
 http://localhost:8000/docs
 ```
 
-ReDoc
+ReDoc:
 
-```
+```text
 http://localhost:8000/redoc
+```
+
+Health endpoint:
+
+```text
+http://localhost:8000/health
 ```
 
 ---
 
 # Authentication
 
-The current version does not require authentication.
+Current version:
 
-Future versions may support
+- No authentication required
+
+Planned future support:
 
 - API Keys
 - JWT Authentication
 - OAuth2
+- Role-Based Access Control
 
 ---
 
-# Supported File Types
+# Supported Dataset Format
 
-Currently supported
+Currently supported:
 
-```
+```text
 .csv
 ```
 
-Maximum upload size is configurable through
+Future support:
 
-```
+- Excel (.xlsx)
+- Parquet
+- JSON
+
+Maximum upload size is configurable through:
+
+```text
 config.yaml
 ```
 
@@ -63,17 +78,17 @@ config.yaml
 # API Endpoints
 
 | Method | Endpoint | Description |
-|----------|-----------|---------------------------|
-| GET | `/` | Root endpoint |
-| GET | `/health` | Health check |
-| POST | `/audit` | Run complete audit |
-| POST | `/audit/summary` | Lightweight audit summary |
+|----------|-----------|--------------------------------|
+| GET | `/` | API information |
+| GET | `/health` | Service health check |
+| POST | `/audit` | Run complete ML audit |
+| POST | `/audit/summary` | Return lightweight audit summary |
 
 ---
 
 # GET /
 
-Returns basic information about the API.
+Returns basic API metadata.
 
 ### Request
 
@@ -86,6 +101,7 @@ GET /
 ```json
 {
   "message": "Agentic ML Audit Copilot API is running.",
+  "version": "1.0.0",
   "docs": "/docs",
   "health": "/health",
   "human_in_the_loop": true
@@ -96,7 +112,7 @@ GET /
 
 # GET /health
 
-Used for service monitoring.
+Returns service status.
 
 ### Request
 
@@ -118,16 +134,22 @@ GET /health
 
 # POST /audit
 
-Runs the complete audit workflow.
+Runs the complete deterministic audit workflow.
 
 ### Request
 
-Multipart Form Data
+**Content-Type**
 
-| Field | Type | Required |
-|--------|------|----------|
-| file | CSV File | Yes |
-| target_column | String | Yes |
+```text
+multipart/form-data
+```
+
+### Parameters
+
+| Field | Type | Required | Description |
+|--------|------|:--------:|-------------|
+| file | CSV | ✅ | Dataset |
+| target_column | String | ✅ | Target column name |
 
 ---
 
@@ -135,75 +157,62 @@ Multipart Form Data
 
 ```bash
 curl -X POST http://localhost:8000/audit \
--F "file=@dataset.csv" \
--F "target_column=target"
+  -F "file=@Housing.csv" \
+  -F "target_column=price"
 ```
 
 ---
 
 ### Successful Response
 
-The response contains
-
-- Profile
-- Problem Detection
-- Data Quality
-- Leakage Detection
-- Metric Recommendation
-- Class Imbalance
-- Baseline Models
-- Explainability
-- MLflow Results
-- Audit Report
-
-Example
+Example:
 
 ```json
 {
-  "message":"Audit completed successfully.",
-  "problem_type":"binary_classification",
-  "audit_score":92
+  "message": "Audit completed successfully.",
+  "problem_type": "regression",
+  "audit_score": 84.05,
+  "best_model": "Linear Regression"
 }
 ```
+
+The complete response may also include:
+
+- Dataset profile
+- Problem type
+- Data quality
+- Leakage analysis
+- Metric recommendation
+- Class imbalance
+- Preprocessing summary
+- Baseline model comparison
+- Explainability
+- MLflow tracking
+- Audit report
 
 ---
 
 # POST /audit/summary
 
-Returns a lightweight audit summary.
+Returns a lightweight summary without the complete audit payload.
 
-Useful when the client does not require the complete report.
-
----
+Useful for dashboards and integrations requiring only key metrics.
 
 ### Request
 
-Multipart Form Data
-
-| Field | Type |
-|--------|------|
-| file | CSV |
-| target_column | String |
-
----
-
-### Example
-
 ```bash
 curl -X POST http://localhost:8000/audit/summary \
--F "file=@dataset.csv" \
--F "target_column=target"
+  -F "file=@Housing.csv" \
+  -F "target_column=price"
 ```
-
----
 
 ### Example Response
 
 ```json
 {
-  "problem_type":"binary_classification",
-  "audit_score":92,
-  "best_model":"Random Forest Classifier"
+  "problem_type": "regression",
+  "audit_score": 84.05,
+  "best_model": "Linear Regression"
 }
 ```
 
@@ -211,16 +220,16 @@ curl -X POST http://localhost:8000/audit/summary \
 
 # Response Structure
 
-The complete audit response may include
+The full audit response may contain:
 
-```
+```text
 Profile
 
-Problem Detection
+Problem Type Detection
 
-Data Quality
+Data Quality Audit
 
-Leakage Detection
+Possible Leakage Detection
 
 Metric Recommendation
 
@@ -228,66 +237,66 @@ Class Imbalance
 
 Preprocessing
 
-Baseline Results
+Baseline Models
 
 Explainability
 
-MLflow Results
+MLflow Tracking
 
 Audit Report
 ```
 
 ---
 
-# Error Codes
+# HTTP Status Codes
 
-| Status | Meaning |
-|----------|----------------|
-| 200 | Success |
+| Status | Description |
+|---------|-------------|
+| 200 | Request completed successfully |
 | 400 | Invalid request |
-| 413 | File too large |
+| 413 | Uploaded file exceeds configured size |
 | 422 | Validation error |
 | 500 | Internal server error |
 
 ---
 
-# Common Errors
+# Common Error Responses
 
-### Missing Target Column
+## Missing Target Column
 
 ```json
 {
-  "detail":"Target column is required."
+  "detail": "Target column is required."
 }
 ```
 
 ---
 
-### Invalid File Type
+## Unsupported File Type
 
 ```json
 {
-  "detail":"Unsupported file type."
+  "detail": "Unsupported file type."
 }
 ```
 
 ---
 
-### File Too Large
+## File Too Large
 
 ```json
 {
-  "detail":"File too large."
+  "detail": "File too large."
 }
 ```
 
 ---
 
-### Internal Error
+## Internal Server Error
 
 ```json
 {
-  "detail":"Unexpected server error during audit execution."
+  "detail": "Unexpected server error during audit execution."
 }
 ```
 
@@ -295,22 +304,22 @@ Audit Report
 
 # Swagger UI
 
-The project includes automatic interactive documentation.
+FastAPI automatically generates interactive API documentation.
 
-Open
+Open:
 
-```
+```text
 http://localhost:8000/docs
 ```
 
-Features
+Features:
 
-- Interactive requests
-- Response schemas
+- Interactive endpoint testing
 - Request validation
-- API testing
+- Response schemas
+- Automatic OpenAPI documentation
 
-Example
+Example:
 
 ![](../assets/screenshots/swagger_ui.png)
 
@@ -318,30 +327,70 @@ Example
 
 # Performance Notes
 
-Current implementation supports
+Current implementation:
 
 - CSV datasets
 - Synchronous audit execution
-- Configurable upload limits
 - Threadpool execution for CPU-intensive tasks
+- Configurable upload limits
+- Deterministic execution order
+
+Performance depends on:
+
+- Dataset size
+- Number of features
+- SHAP computation
+- Baseline model training
 
 ---
 
-# Future Improvements
+# Security Notes
 
-Possible future enhancements
+Current implementation:
+
+- Input validation
+- File type validation
+- Configurable upload limits
+- Environment-variable-based secrets
+
+Future improvements:
+
+- JWT authentication
+- API keys
+- OAuth2
+- Rate limiting
+- Request throttling
+
+---
+
+# API Design Principles
+
+The API follows a deterministic-first approach.
+
+- Python performs all ML computation.
+- The LLM is used only for explanations and report generation.
+- Possible leakage is never treated as confirmed automatically.
+- Human review is required before making downstream modeling decisions.
+
+---
+
+# Future Enhancements
+
+Planned API improvements:
 
 - Authentication
 - Rate limiting
-- Dataset versioning
 - Async background jobs
-- WebSocket progress updates
+- Progress tracking
 - Batch audit endpoints
+- Dataset versioning
+- Cloud storage integration
+- WebSocket progress updates
 
 ---
 
 # Summary
 
-The API is intentionally lightweight and focuses on exposing the complete machine learning audit workflow through a small number of well-defined endpoints.
+The FastAPI service exposes the complete deterministic audit workflow through a small, well-defined set of REST endpoints.
 
-FastAPI automatically generates interactive documentation, making integration and testing straightforward.
+Automatic OpenAPI documentation, structured responses, and a modular architecture make the API straightforward to integrate into ML engineering workflows, dashboards, and automation pipelines.

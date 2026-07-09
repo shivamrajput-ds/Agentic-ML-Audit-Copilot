@@ -2,22 +2,29 @@
 
 ## Overview
 
-This guide explains how to set up, run, and use the Agentic ML Audit Copilot locally.
+This guide explains how to install, configure, and use **Agentic ML Audit Copilot**.
 
-The project can be executed using either the Streamlit dashboard or the FastAPI REST API.
+The project can be executed using:
+
+- Streamlit Dashboard
+- FastAPI REST API
+- Docker
+- MLflow
+
+The audit workflow is deterministic-first. Python performs all ML computation, while the LLM is used only for explanations and report generation.
 
 ---
 
 # System Requirements
 
-Recommended
+Recommended:
 
 - Python 3.11 or 3.12
 - Git
 - uv (recommended)
 - Docker Desktop (optional)
 
-Supported Operating Systems
+Supported operating systems:
 
 - Windows
 - Linux
@@ -39,24 +46,30 @@ cd Agentic-ML-Audit-Copilot
 
 ## Using uv (Recommended)
 
+Create the virtual environment:
+
 ```bash
 uv venv
-
-uv sync
 ```
 
-Activate
+Activate it.
 
-Windows
+Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
 
-Linux/macOS
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+uv pip install -r requirements.txt
 ```
 
 ---
@@ -67,21 +80,19 @@ source .venv/bin/activate
 python -m venv .venv
 ```
 
-Activate
-
-Windows
+Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
 
-Linux/macOS
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Install packages
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -93,154 +104,144 @@ pip install -r requirements.txt
 
 Create a `.env` file in the project root.
 
-Example
+Example:
 
 ```text
 GROQ_API_KEY=YOUR_GROQ_API_KEY
+```
+
+The project also includes:
+
+```text
+.env.example
 ```
 
 ---
 
 # Project Configuration
 
-Most application settings are controlled through
+Most application settings are controlled through:
 
-```
+```text
 config.yaml
 ```
 
-Examples
+Examples include:
 
-- Upload limits
 - Logging
+- Upload limits
 - MLflow
 - Explainability
 - Random seed
-- Preprocessing
+- Model defaults
 - Metric defaults
+- Preprocessing
 
 ---
 
-# Running Streamlit
-
-Start the dashboard
+# Run the Streamlit Dashboard
 
 ```bash
-python -m streamlit run app/streamlit_app.py
+uv run streamlit run app/streamlit_app.py
 ```
 
-Open
+Open:
 
-```
+```text
 http://localhost:8501
 ```
 
 ---
 
-# Running FastAPI
-
-Start the API
+# Run FastAPI
 
 ```bash
-uvicorn app.api:app --reload
+uv run uvicorn app.api:app --reload
 ```
 
-Open Swagger
+Swagger UI:
 
-```
+```text
 http://localhost:8000/docs
+```
+
+Health endpoint:
+
+```text
+http://localhost:8000/health
 ```
 
 ---
 
-# Running with Docker
+# Run MLflow
 
-Build
+```bash
+uv run mlflow ui
+```
+
+Open:
+
+```text
+http://localhost:5000
+```
+
+MLflow records:
+
+- Parameters
+- Metrics
+- Model artifacts
+- Best baseline model
+
+---
+
+# Run with Docker
+
+Build:
 
 ```bash
 docker build -t agentic-ml-audit-copilot .
 ```
 
-Run
+Run:
 
 ```bash
-docker run \
--p 8501:8501 \
+docker run --rm \
 -p 8000:8000 \
--e GROQ_API_KEY=YOUR_GROQ_API_KEY \
+-p 8501:8501 \
+-e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
 agentic-ml-audit-copilot
 ```
 
-Open
+Or pull directly from Docker Hub:
 
-```
-Streamlit
-
-http://localhost:8501
-
-FastAPI
-
-http://localhost:8000/docs
+```bash
+docker pull shivamrajput130/agentic-ml-audit-copilot:latest
 ```
 
----
-
-# Using the Application
-
-## Step 1
-
-Open the Streamlit dashboard.
-
----
-
-## Step 2
-
-Upload a CSV dataset.
-
-Example
-
-```
-customer_data.csv
+```bash
+docker run --rm \
+-p 8000:8000 \
+-p 8501:8501 \
+-e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
+shivamrajput130/agentic-ml-audit-copilot:latest
 ```
 
 ---
 
-## Step 3
+# Audit Workflow
 
-Select the target column.
-
-Example
+The application executes the following deterministic workflow:
 
 ```
-Churn
-
-OR
-
-Target
-
-OR
-
-Price
-```
-
----
-
-## Step 4
-
-Click
-
-```
-Run Audit
-```
-
-The workflow automatically executes.
-
-```
-Profile Dataset
+Upload CSV
 
 ↓
 
-Problem Detection
+Dataset Profiling
+
+↓
+
+Problem Type Detection
 
 ↓
 
@@ -248,7 +249,7 @@ Data Quality Audit
 
 ↓
 
-Leakage Detection
+Possible Leakage Detection
 
 ↓
 
@@ -256,11 +257,11 @@ Metric Recommendation
 
 ↓
 
-Class Imbalance
+Class Imbalance Detection
 
 ↓
 
-Preprocessing
+Preprocessing Pipeline
 
 ↓
 
@@ -276,26 +277,72 @@ Explainability
 
 ↓
 
-LLM Report
+LLM Report Generation
 ```
+
+---
+
+# Using the Dashboard
+
+## Step 1
+
+Launch Streamlit.
+
+## Step 2
+
+Upload a CSV dataset.
+
+Example:
+
+```
+Housing.csv
+```
+
+## Step 3
+
+Choose the target column.
+
+Examples:
+
+```
+Price
+
+Target
+
+Churn
+
+Label
+```
+
+## Step 4
+
+Click:
+
+```
+Run Audit
+```
+
+The workflow executes automatically.
 
 ---
 
 # Audit Results
 
-The dashboard displays
+The dashboard provides:
 
-- Dataset Summary
-- Missing Values
-- Duplicate Rows
-- Leakage Risks
-- Metric Recommendation
-- Baseline Results
-- SHAP
-- Feature Importance
-- MLflow
-- Human Review
-- Audit Report
+- Dataset profile
+- Missing value analysis
+- Duplicate detection
+- Data quality score
+- Possible leakage risks
+- Class imbalance analysis
+- Metric recommendation
+- Baseline model comparison
+- Feature importance
+- SHAP explainability
+- MLflow tracking summary
+- Human review checklist
+- AI-generated audit report
 
 ---
 
@@ -303,45 +350,47 @@ The dashboard displays
 
 Reports are generated automatically.
 
-Supported formats
+Supported formats:
 
 - Markdown
 - JSON
 
-Reports are stored inside
+Reports are stored in:
 
-```
+```text
 reports/
 ```
 
 ---
 
-# Human Review Dashboard
+# Human Review
 
-The dashboard highlights findings that may require manual validation.
+The system highlights findings requiring manual review.
 
-Examples
+Examples:
 
-- Possible leakage
+- Possible target leakage
 - Identifier columns
-- Severe imbalance
+- Severe class imbalance
 - High missing values
 
-The application assists the user by surfacing these findings but does not automatically approve or reject them.
+The application **never confirms leakage automatically**.
+
+Human review is always recommended.
 
 ---
 
 # Running Tests
 
-Execute the complete test suite
+Execute the complete test suite:
 
 ```bash
-python -m pytest -v
+uv run pytest
 ```
 
-Expected output
+Expected output:
 
-```
+```text
 96 passed
 ```
 
@@ -349,100 +398,53 @@ Expected output
 
 # Linting
 
-Run Ruff
+Check formatting:
 
 ```bash
-ruff check .
+uv run ruff format --check .
 ```
 
-Auto-fix
+Run Ruff:
 
 ```bash
-ruff check . --fix
+uv run ruff check .
 ```
 
----
-
-# MLflow
-
-Run the MLflow UI
+Auto-format:
 
 ```bash
-mlflow ui
-```
-
-Open
-
-```
-http://localhost:5000
-```
-
-The UI displays
-
-- Parameters
-- Metrics
-- Models
-- Artifacts
-
----
-
-# Sample Workflow
-
-```
-Upload CSV
-
-↓
-
-Select Target
-
-↓
-
-Run Audit
-
-↓
-
-Review Results
-
-↓
-
-Download Report
+uv run ruff format .
 ```
 
 ---
 
 # Troubleshooting
 
-## ModuleNotFoundError
+## No module named `src`
 
-Solution
-
-```bash
-pip install -r requirements.txt
-```
-
-or
+Run:
 
 ```bash
-uv sync
+PYTHONPATH=. uv run streamlit run app/streamlit_app.py
 ```
 
 ---
 
 ## Invalid Target Column
 
-Ensure the selected target column exists in the uploaded dataset.
+Verify that the selected target column exists in the uploaded CSV.
 
 ---
 
 ## Missing GROQ API Key
 
-Create
+Create:
 
-```
+```text
 .env
 ```
 
-and add
+Add:
 
 ```text
 GROQ_API_KEY=YOUR_GROQ_API_KEY
@@ -452,32 +454,61 @@ GROQ_API_KEY=YOUR_GROQ_API_KEY
 
 ## Docker Port Already in Use
 
-Run the container on different ports.
+Use different host ports.
 
-Example
+Example:
 
 ```bash
-docker run \
--p 8502:8501 \
+docker run --rm \
 -p 8001:8000 \
--e GROQ_API_KEY=YOUR_GROQ_API_KEY \
+-p 8502:8501 \
+-e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
 agentic-ml-audit-copilot
+```
+
+---
+
+## Health Check
+
+Open:
+
+```text
+http://localhost:8000/health
 ```
 
 ---
 
 # Best Practices
 
-- Review leakage warnings before training models.
-- Use representative datasets.
+- Review all possible leakage warnings before training models.
 - Verify the selected target column.
-- Inspect baseline model performance before experimentation.
+- Use representative datasets.
+- Inspect baseline model performance before optimization.
+- Review SHAP explanations.
 - Keep dependencies updated.
+- Never commit API keys.
+
+---
+
+# Design Philosophy
+
+Agentic ML Audit Copilot follows a deterministic-first approach.
+
+- Python performs all ML computation.
+- The LLM is used only for explanations.
+- Possible leakage is never treated as confirmed.
+- Human review is required before making modeling decisions.
 
 ---
 
 # Summary
 
-The application is designed to provide a simple workflow for auditing tabular machine learning datasets.
+Agentic ML Audit Copilot simplifies dataset auditing before model development.
 
-Users only need to upload a dataset, select the target column, and run the audit. The platform performs the remaining analysis automatically and generates a structured report with recommendations and supporting insights.
+Users only need to:
+
+1. Upload a dataset.
+2. Select the target column.
+3. Run the audit.
+
+The platform performs deterministic analysis, generates explainability insights, tracks experiments with MLflow, and produces a structured audit report for informed human decision-making.

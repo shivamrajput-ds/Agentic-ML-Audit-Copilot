@@ -2,27 +2,28 @@
 
 ## Our Pledge
 
-We are committed to creating a respectful and welcoming environment for everyone who participates in this project.
+We are committed to creating a respectful, welcoming, and professional environment for everyone who participates in **Agentic ML Audit Copilot**.
 
-Everyone is expected to be respectful, constructive, and professional.
+All contributors, maintainers, and users are expected to communicate respectfully and constructively.
 
 ---
 
-# Expected Behavior
+## Expected Behavior
 
-Examples of positive behavior include
+Examples of positive behavior include:
 
-- Being respectful of different viewpoints
+- Being respectful of different viewpoints and experiences
 - Giving constructive feedback
 - Helping others learn
-- Communicating clearly
-- Focusing on the project and technical discussion
+- Communicating clearly and professionally
+- Focusing on project improvement and technical discussion
+- Being open to suggestions and collaboration
 
 ---
 
-# Unacceptable Behavior
+## Unacceptable Behavior
 
-Examples of unacceptable behavior include
+Examples of unacceptable behavior include:
 
 - Harassment
 - Insults or personal attacks
@@ -30,58 +31,63 @@ Examples of unacceptable behavior include
 - Public or private abuse
 - Sharing private information without permission
 - Disruptive or disrespectful behavior
+- Repeated off-topic or hostile comments
 
 ---
 
-# Project Maintainer Responsibility
+## Maintainer Responsibilities
 
-Project maintainers are responsible for encouraging a positive environment.
+Project maintainers are responsible for encouraging a positive and productive environment.
 
 Maintainers may remove comments, issues, pull requests, or contributions that violate this Code of Conduct.
 
+Maintainers may also temporarily or permanently restrict participation when necessary.
+
 ---
 
-# Reporting
+## Reporting
 
 If you notice unacceptable behavior, please report it to the project maintainer.
 
-Reports should include
+A useful report should include:
 
 - What happened
 - Where it happened
-- Any relevant screenshots or links
+- Any relevant screenshots, links, or context
 
-Reports will be reviewed respectfully.
+Reports will be reviewed respectfully and handled as fairly as possible.
 
 ---
 
-# Scope
+## Scope
 
-This Code of Conduct applies to
+This Code of Conduct applies to:
 
 - GitHub issues
 - Pull requests
 - Discussions
 - Documentation contributions
+- Code reviews
 - Any project-related communication
 
 ---
 
-# Enforcement
+## Enforcement
 
-Possible actions include
+Possible actions include:
 
 - Warning
 - Comment removal
-- Temporary restriction
+- Issue or pull request closure
+- Temporary restriction from participation
 - Permanent restriction from participation
 
 The response will depend on the severity and context of the situation.
 
 ---
 
-# Summary
+## Summary
 
-This project welcomes contributions from learners, developers, and engineers.
+This project welcomes learners, developers, data scientists, and engineers.
 
-The goal is to maintain a respectful and helpful space for improving the project.
+The goal is to maintain a respectful and helpful space for improving **Agentic ML Audit Copilot**.
