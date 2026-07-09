@@ -2,14 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [main, master]
+    branches:
+      - main
+      - master
 
 jobs:
   test:
     name: Test and lint
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -18,33 +23,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Set up uv using the official github action
-      - name: Set up uv
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          enable-cache: true # Automatically handles caching for super fast runs
+          enable-cache: true
 
-      # 2. Set up Python using uv
-      - name: Set up Python
-        run: uv python install ${{ matrix.python-version }}
+      - name: Create virtual environment
+        run: |
+          uv venv .venv --python ${{ matrix.python-version }}
 
-      # 3. Install dependencies using uv sync or uv pip install
       - name: Install dependencies
         run: |
-          uv pip install -r requirements.txt --system
+          uv pip install -r requirements.txt --python .venv/bin/python
 
-      # 4. Run lint checks
       - name: Run lint checks
         run: |
-          uv run ruff check src app tests
+          uv run --python .venv/bin/python ruff check src app tests
 
-      # 5. Run tests
       - name: Run tests
         run: |
-          uv run pytest -v
+          uv run --python .venv/bin/python python -m pytest -v
 
-      # 6. Upload test artifacts on failure
-      - name: Upload test artifacts on failure
+      - name: Upload debug artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
