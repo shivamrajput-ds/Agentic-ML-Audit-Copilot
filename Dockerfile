@@ -31,6 +31,13 @@ COPY . .
 RUN mkdir -p data/uploads logs reports artifacts/mlflow_temp .cache \
     && chmod +x start.sh
 
+# Run as a non-root user instead of root.
+RUN groupadd --system appgroup \
+    && useradd --system --gid appgroup --home /app --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appgroup /app
+
+USER appuser
+
 EXPOSE 8000 8501
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \

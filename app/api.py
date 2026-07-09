@@ -72,10 +72,16 @@ def get_cors_origins() -> list[str]:
     return origins or ["*"]
 
 
+_cors_origins = get_cors_origins()
+_cors_allows_wildcard = "*" in _cors_origins
+
+# Wildcard origins ("*") combined with allow_credentials=True is an invalid/unsafe
+# CORS configuration (browsers reject it, and it defeats the purpose of credentials
+# scoping). Only allow credentials when explicit origins are configured.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=not _cors_allows_wildcard,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -410,10 +416,15 @@ async def execute_audit_request(
         raise map_audit_exception_to_http(error) from error
 
     except Exception as error:
+        # Log the full exception server-side only. Do not leak internal error
+        # details (stack traces, file paths, library internals) to the client.
         logger.exception("Unexpected API error during audit execution.")
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected server error during audit execution: {error}",
+            detail=(
+                "Unexpected server error during audit execution. "
+                "Check server logs (X-Request-ID header) for details."
+            ),
         ) from error
 
     finally:
