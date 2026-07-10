@@ -1,4 +1,4 @@
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyo
@@ -15,12 +15,12 @@ venv/
 env/
 ENV/
 
-# Secrets
+# Secrets and local environment files
 .env
 .env.*
 !.env.example
 
-# Git / editor
+# Git and editor files
 .git/
 .gitignore
 .vscode/
@@ -28,7 +28,7 @@ ENV/
 *.swp
 *.swo
 
-# OS junk
+# OS files
 .DS_Store
 Thumbs.db
 
@@ -40,7 +40,7 @@ artifacts/
 data/uploads/
 mlruns/
 
-# Local/large data
+# Local or large data
 data/raw/
 data/processed/
 data/interim/
@@ -58,6 +58,7 @@ data/interim/
 dist/
 build/
 *.egg-info/
+agentic_ml_audit_copilot.egg-info/
 
-# Docker local override
+# Docker local override files
 docker-compose.override.yml

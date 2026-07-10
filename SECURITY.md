@@ -2,36 +2,37 @@
 
 ## Overview
 
-Security is an important aspect of every software project.
+Security is an important part of **Agentic ML Audit Copilot**.
 
-This document describes how security-related issues should be reported and outlines the current security posture of **Agentic ML Audit Copilot**.
+This document explains how security issues should be reported and describes the current security posture of the project.
 
 ---
 
 ## Supported Versions
 
-Security updates are provided only for the latest stable release.
+Security updates are provided for the latest stable release.
 
 | Version | Supported |
-|----------|:---------:|
-| 1.x | ✅ |
-| < 1.0 | ❌ |
+| --- | :---: |
+| 1.x | Yes |
+| < 1.0 | No |
 
 ---
 
 ## Reporting a Security Vulnerability
 
-If you discover a potential security issue, please **do not open a public GitHub issue immediately**.
+If you find a potential security issue, please do not open a public GitHub issue immediately.
 
-Instead, report the issue privately to the project maintainer and include:
+Report it privately to the project maintainer and include:
 
-- Description of the issue
+- A clear description of the issue
 - Steps to reproduce
 - Potential impact
 - Environment details
-- Suggested mitigation (if available)
+- Logs, screenshots, or proof of concept if helpful
+- Suggested mitigation, if available
 
-Responsible disclosure helps prevent unnecessary public exposure before the issue has been reviewed and addressed.
+Responsible disclosure helps prevent unnecessary public exposure before the issue is reviewed and fixed.
 
 ---
 
@@ -41,13 +42,13 @@ Examples of security-related issues include:
 
 - Sensitive information exposure
 - Secrets or API key leakage
+- Unsafe file uploads
 - Arbitrary file access
 - Path traversal vulnerabilities
-- Unsafe file uploads
 - Remote code execution
 - Dependency vulnerabilities
 - Container security issues
-- Authentication or authorization bypass (future releases)
+- Authentication or authorization bypass in future releases
 
 ---
 
@@ -55,24 +56,26 @@ Examples of security-related issues include:
 
 The project currently includes:
 
-- File type validation
+- File type validation for uploaded datasets
 - Upload size limits
 - Safe filename handling
-- Environment variable support for secrets
-- Configuration-driven behavior
+- Environment-variable-based secret configuration
+- `.env.example` for documenting required environment variables
+- Configuration-driven application behavior
 - Structured exception handling
-- Dependency version pinning
+- JSON-safe API responses
+- Dependency pinning through `requirements.txt` and `pyproject.toml`
 - Dockerized deployment support
 - Non-root Docker container execution
-- CI-based automated testing and linting
+- CI-based testing and linting
 
 ---
 
 ## Secrets Management
 
-### Recommended
+Use environment variables for secrets.
 
-Store secrets using environment variables:
+Linux/macOS:
 
 ```bash
 export GROQ_API_KEY="your_api_key"
@@ -84,14 +87,12 @@ Windows PowerShell:
 $env:GROQ_API_KEY="your_api_key"
 ```
 
-### Avoid
-
 Never:
 
 - Commit API keys
 - Commit `.env` files
 - Hardcode credentials in source code
-- Share secrets in GitHub issues or pull requests
+- Share secrets in GitHub issues, pull requests, screenshots, or logs
 
 The repository includes:
 
@@ -99,7 +100,24 @@ The repository includes:
 .env.example
 ```
 
-for documenting required environment variables.
+Use this file only to document required environment variables. Do not place real secrets inside it.
+
+---
+
+## File Upload Security
+
+The application accepts user-uploaded tabular datasets.
+
+Uploaded files should always be treated as untrusted input.
+
+Users should:
+
+- Upload trusted datasets only
+- Avoid uploading sensitive or confidential information
+- Validate data sources before using them for model training
+- Review audit results before acting on recommendations
+
+The audit workflow is designed to identify possible data risks, but it does not replace a full security review or data governance process.
 
 ---
 
@@ -109,6 +127,7 @@ Dependencies are managed through:
 
 - `requirements.txt`
 - `pyproject.toml`
+- `uv.lock`
 
 Recommended practices:
 
@@ -116,45 +135,35 @@ Recommended practices:
 - Review dependency changelogs
 - Monitor security advisories
 - Rebuild Docker images periodically
-
----
-
-## File Upload Security
-
-The application accepts user-uploaded datasets.
-
-Users should:
-
-- Upload trusted datasets only
-- Review audit results before acting on them
-- Avoid uploading sensitive or confidential information
-- Validate data sources before model training
-
-Uploaded files should always be considered untrusted input.
+- Avoid adding unnecessary dependencies
 
 ---
 
 ## Docker Security
 
-The Docker image includes:
+The Docker setup is designed for safer local and demo deployment.
+
+It includes:
 
 - Non-root runtime user
 - Environment-variable-based configuration
-- Minimal runtime dependencies
 - Isolated application environment
+- Explicit exposed ports
 
-When deploying:
+When deploying Docker images:
 
-- Use trusted Docker registries
+- Use trusted registries
 - Keep Docker updated
 - Limit exposed ports
-- Use secure secrets management
+- Avoid running containers with unnecessary privileges
+- Use secure secret management
+- Rebuild images after dependency updates
 
 ---
 
 ## Third-Party Services
 
-This project may interact with:
+This project may interact with third-party services such as:
 
 - Groq
 - MLflow
@@ -162,9 +171,9 @@ This project may interact with:
 Users are responsible for:
 
 - Securing API credentials
-- Managing infrastructure security
-- Monitoring deployed environments
-- Following the security recommendations of third-party providers
+- Managing deployed infrastructure
+- Monitoring third-party service usage
+- Following the security guidance of each provider
 
 ---
 
@@ -173,46 +182,49 @@ Users are responsible for:
 Agentic ML Audit Copilot follows these principles:
 
 - Deterministic-first execution
-- Human-in-the-loop review
+- Human-in-the-loop review for risky datasets
 - No automatic confirmation of data leakage
 - Configuration-driven behavior
-- Least-privilege secret handling
-- Separation of ML computation and LLM explanations
+- Least-privilege handling of secrets
+- Clear separation between ML computation and LLM explanation
 
-Python performs all ML computation.
+Python performs ML computations and deterministic audit checks.
 
 The LLM is used only for:
 
 - Explanations
-- Report generation
 - Audit Q&A
+- Report generation
 
 ---
 
-## Limitations
+## Production Limitations
 
-This project is designed primarily for:
+This project is currently designed for:
 
-- Education
+- Learning
 - Research
 - Portfolio demonstration
-- Learning ML engineering practices
+- ML engineering practice
 
-Before deploying in a production environment, consider implementing:
+Before using it in a production environment, consider adding:
 
 - Authentication
 - Authorization
+- Role-based access control
 - Audit logging
-- Monitoring and alerting
 - Rate limiting
-- Secret management solutions
-- Infrastructure hardening
+- Monitoring and alerting
+- Secure secret management
 - Network security controls
+- Input sandboxing
+- Centralized logging
+- Cloud infrastructure hardening
 
 ---
 
 ## Contact
 
-If you believe you have identified a security issue, please report it responsibly through GitHub or directly to the project maintainer.
+If you believe you have found a security issue, please report it responsibly to the project maintainer.
 
 Thank you for helping improve the security of **Agentic ML Audit Copilot**.

@@ -2,140 +2,208 @@
 
 ## Overview
 
-**Agentic ML Audit Copilot** is a modular machine learning audit platform designed to evaluate tabular datasets before model development.
+**Agentic ML Audit Copilot** is a modular ML audit system for reviewing tabular datasets before model training.
 
-Instead of immediately training optimized models, the system first audits the dataset for data quality issues, possible leakage risks, class imbalance, metric suitability, baseline performance, explainability, and reproducibility.
+The project is designed to answer one practical question:
 
-The project follows a **deterministic-first architecture**:
+> Is this dataset ready for responsible baseline modeling?
 
-- Python performs all ML computation.
-- Scikit-learn handles preprocessing and baseline modeling.
-- MLflow tracks experiments.
+Instead of directly training optimized models, the system first checks data quality, possible leakage risks, class imbalance, metric suitability, and workflow readiness. If important risks are found, the workflow pauses at a Human Review Gate before modeling continues.
+
+The project follows a deterministic-first design:
+
+- Python performs audit checks and ML computation.
+- Scikit-learn handles preprocessing and baseline models.
 - LangGraph orchestrates the audit workflow.
-- The LLM is used only for explanations and report generation.
+- MLflow tracks experiment metadata and metrics.
+- SHAP and feature importance explain baseline behavior.
+- The LLM is used only for explanations, audit Q&A, and report writing.
 
 ---
 
-# High-Level Architecture
+## Architecture Diagram
+
+<p align="center">
+  <img src="../assets/architecture/01_system_architecture.png" width="95%" alt="Agentic ML Audit Copilot System Architecture">
+</p>
+
+---
+
+## High-Level Architecture
 
 ```text
 User
- ↓
-Streamlit Dashboard
- ↓
-FastAPI Service
- ↓
-LangGraph Workflow
- ↓
-Audit Modules
- ↓
-MLflow + Explainability + Report
- ↓
-Final Audit Output
+  |
+  v
+Streamlit UI / FastAPI API
+  |
+  v
+CSV Upload + Target Selection
+  |
+  v
+LangGraph Audit Workflow
+  |
+  v
+Dataset Profiler
+  |
+  v
+Problem Type Detector
+  |
+  v
+Parallel Audit Layer
+  |-- Data Quality Audit
+  |-- Leakage Detection
+  |-- Class Imbalance Detection
+  |
+  v
+Risk Aggregator
+  |
+  v
+Decision Router
+  |
+  v
+Human Review Gate
+  |-- Stop / Fix Dataset
+  |-- Human Approved
+          |
+          v
+      Metric Recommender
+          |
+          v
+      Preprocessing Pipeline
+          |
+          v
+      Baseline Models
+          |
+          v
+      MLflow Tracking
+          |
+          v
+      Explainability / SHAP
+          |
+          v
+      LLM Audit Report
+          |
+          v
+      Audit Q&A
+          |
+          v
+      Final Dashboard + JSON Report
 ```
 
 ---
 
-# Core Components
+## Main Components
 
-## Streamlit Dashboard
+## 1. Streamlit Dashboard
 
-The Streamlit dashboard provides the main user interface.
+The Streamlit dashboard is the main interactive interface.
 
 Responsibilities:
 
-- CSV upload
-- Target column selection
-- Audit execution
-- Interactive visualizations
-- Human review dashboard
-- Explainability display
-- Report downloads
-- Audit Q&A
+- Upload CSV datasets
+- Select the target column
+- Run the audit workflow
+- Show dataset profile and quality results
+- Show possible leakage and imbalance risks
+- Show the Human Review Gate
+- Collect reviewer decisions
+- Display baseline model results
+- Display MLflow, SHAP, and report status
+- Provide Markdown and JSON downloads
+- Support audit Q&A after results are generated
 
-The dashboard does not perform ML computation directly. It delegates execution to backend workflow modules.
-
----
-
-## FastAPI Service
-
-FastAPI exposes the audit workflow through REST endpoints.
-
-Main endpoints:
-
-- `/`
-- `/health`
-- `/audit`
-- `/audit/summary`
-
-This allows external systems to trigger audits programmatically.
+The dashboard does not directly own the audit logic. It uses the workflow layer and displays the resulting audit state.
 
 ---
 
-## LangGraph Workflow
+## 2. FastAPI Service
 
-LangGraph orchestrates the complete audit pipeline.
+FastAPI exposes the audit workflow for programmatic use.
 
-Execution flow:
+System endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/` | API information |
+| GET | `/health` | Health check |
+| GET | `/metadata` | Project and runtime metadata |
+| GET | `/workflow-guide` | Human review workflow guide |
+
+Audit endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/audit` | Run the audit workflow |
+| POST | `/audit/summary` | Run a lightweight audit summary |
+| GET | `/audit/modes` | Show available audit modes |
+
+Human review endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/audit/review-gate` | Run audit until the Human Review Gate |
+| GET | `/human-review/decision-template` | Return the reviewer decision JSON template |
+| POST | `/audit/after-human-approval` | Continue workflow after reviewer approval |
+
+The API keeps responses JSON-safe and avoids returning runtime-only Python objects.
+
+---
+
+## 3. LangGraph Workflow
+
+LangGraph coordinates the audit pipeline.
+
+The workflow keeps a shared state object. Each module reads from the state, performs one focused task, and writes its results back to the state.
+
+Core workflow stages:
 
 ```text
 Load Dataset
- ↓
+  |
+  v
 Profile Dataset
- ↓
-Problem Detection
- ↓
-Data Quality Audit
- ↓
-Possible Leakage Detection
- ↓
-Class Imbalance Detection
- ↓
-Metric Recommendation
- ↓
-Baseline Models
- ↓
-MLflow Tracking
- ↓
-Explainability
- ↓
-LLM Report
- ↓
-Final Summary
+  |
+  v
+Detect Problem Type
+  |
+  v
+Run Parallel Audit Checks
+  |
+  v
+Aggregate Risks
+  |
+  v
+Route Decision
+  |
+  v
+Human Review Gate
+  |
+  v
+Continue or Stop
 ```
 
----
-
-# Audit Modules
-
-## Dataset Profiler
-
-Generates dataset-level information:
-
-- Shape
-- Column types
-- Missing values
-- Duplicate rows
-- Memory usage
-- Target summary
+This design makes the pipeline easier to extend and test.
 
 ---
 
-## Problem Detector
+## 4. Parallel Audit Layer
 
-Detects the ML task type:
+The Parallel Audit Layer runs the main deterministic risk checks.
 
-- Binary classification
-- Multiclass classification
-- Regression
+It contains three audit modules:
 
-Ambiguous cases are marked for human review.
+```text
+Data Quality Audit
+Leakage Detection
+Class Imbalance Detection
+```
 
----
+These modules are independent and focus on separate risk areas.
 
-## Data Quality Audit
+### Data Quality Audit
 
-Checks:
+Checks for:
 
 - Missing values
 - Duplicate rows
@@ -146,25 +214,21 @@ Checks:
 - Infinite values
 - Outliers
 
-The module reports findings and recommendations without modifying the dataset.
+The module reports findings and recommendations. It does not modify the dataset.
 
----
+### Leakage Detection
 
-## Leakage Detection
-
-Detects **possible leakage risks**, including:
+Detects possible leakage risks, including:
 
 - Target-like column names
-- Duplicate target-like columns
+- Columns that look derived from the target
 - Highly correlated features
-- Proxy features
-- Identifier-like columns
+- Duplicate or proxy features
+- Identifier-like columns that may not generalize
 
-The system never claims confirmed leakage automatically. Human review is required.
+The system does not automatically claim confirmed leakage. It reports possible risks that need human review.
 
----
-
-## Class Imbalance Detection
+### Class Imbalance Detection
 
 For classification tasks, the module calculates:
 
@@ -176,38 +240,100 @@ For classification tasks, the module calculates:
 - Severity level
 - Recommended actions
 
+For regression tasks, the module returns a safe not-applicable result.
+
 ---
 
-## Metric Recommendation
+## 5. Risk Aggregator
 
-Recommends evaluation metrics based on:
+The Risk Aggregator combines findings from different audit modules into a workflow-level risk summary.
 
-- Problem type
-- Imbalance severity
+It considers signals such as:
 
-Examples:
+- Severe missing values
+- Possible leakage
+- Severe class imbalance
+- Ambiguous problem type
+- High-risk target or feature patterns
 
-Classification:
+The goal is to create a clear decision point instead of showing disconnected module outputs.
 
-- F1 Score
+---
+
+## 6. Decision Router
+
+The Decision Router decides whether the workflow should continue automatically or pause for review.
+
+Possible routing outcomes:
+
+```text
+Continue
+Pause for Human Review
+Stop / Fix Dataset
+```
+
+The router does not make final business decisions. It only determines whether the dataset is safe enough to proceed without review.
+
+---
+
+## 7. Human Review Gate
+
+<p align="center">
+  <img src="../assets/architecture/02_hitl_workflow.png" width="95%" alt="Human-in-the-Loop ML Audit Workflow">
+</p>
+
+The Human Review Gate is used when the system finds risks that need human judgment.
+
+Reviewer decision options:
+
+- Accept risk and continue
+- Accept flag and fix later
+- Mark false positive
+- Needs data fix
+- Reject modeling
+
+Final human decision:
+
+```text
+Approved
+Rejected
+Needs Fix
+```
+
+If approved, the workflow continues to metric recommendation, preprocessing, baseline modeling, MLflow, SHAP, and final report generation.
+
+If rejected or marked as needing a data fix, the workflow stops so the dataset can be corrected first.
+
+---
+
+## 8. Metric Recommender
+
+The Metric Recommender selects suitable evaluation metrics based on the detected task and audit context.
+
+For classification, it may recommend:
+
+- Accuracy
+- F1 score
 - Macro F1
 - Weighted F1
-- Balanced Accuracy
+- Balanced accuracy
 - ROC-AUC
 - PR-AUC
 
-Regression:
+For regression, it may recommend:
 
 - RMSE
 - MAE
 - R²
-- Median Absolute Error
+- Median absolute error
+
+The system avoids recommending a single metric blindly.
 
 ---
 
-## Preprocessing Pipeline
+## 9. Preprocessing Pipeline
 
-Preprocessing is built using scikit-learn pipelines.
+Preprocessing is handled with scikit-learn pipelines.
 
 Numeric features:
 
@@ -219,92 +345,135 @@ Categorical features:
 - Most frequent imputation
 - One-hot encoding
 
-All preprocessing stays inside sklearn pipelines to avoid train-test leakage.
+Preprocessing stays inside the pipeline to reduce train-test leakage risk.
 
 ---
 
-## Baseline Models
+## 10. Baseline Models
 
-The project trains simple baseline models.
+Baseline models are used for sanity-check benchmarking.
 
-Classification:
+Classification baselines may include:
 
 - Logistic Regression
 - Random Forest Classifier
 
-Regression:
+Regression baselines may include:
 
 - Linear Regression
 - Random Forest Regressor
 
-These models are used for sanity-check benchmarking, not final optimization.
+These models are not meant to be final optimized models. They provide a practical baseline after the dataset passes audit review.
 
 ---
 
-## MLflow Tracking
+## 11. MLflow Tracking
 
-MLflow tracks:
+MLflow records experiment information.
+
+Typical tracked items:
 
 - Experiment name
+- Problem type
+- Baseline model names
 - Model parameters
-- Metrics
-- Runs
-- Best model
-- Optional artifacts
+- Evaluation metrics
+- Best baseline model
+- Runtime metadata
 
-This improves experiment reproducibility.
-
----
-
-## Explainability
-
-Explainability includes:
-
-- Built-in feature importance
-- SHAP summaries when enabled
-
-Explainability is separated from training so it can evolve independently.
+This improves reproducibility and makes model comparison easier.
 
 ---
 
-## LLM Report Generation
+## 12. Explainability
 
-The LLM generates:
+Explainability is separated from model training.
+
+Current explainability outputs may include:
+
+- Feature importance
+- SHAP summaries when supported
+- Human-readable interpretation notes
+
+This helps users understand which features influenced the baseline model.
+
+---
+
+## 13. LLM Report and Audit Q&A
+
+The LLM layer is used only after deterministic results are produced.
+
+It can generate:
 
 - Executive summary
-- Audit explanation
-- Markdown report
-- Audit Q&A answers
+- Markdown audit report
+- Human-readable explanation
+- Follow-up audit Q&A
 
-The LLM does not perform ML computation.
+The LLM does not train models, compute metrics, detect leakage, or make final approval decisions.
 
 ---
 
-# Data Flow
+## API Human Review Flow
+
+<p align="center">
+  <img src="../assets/architecture/03_fastapi_workflow.png" width="95%" alt="FastAPI Human Review Workflow">
+</p>
+
+Programmatic HITL flow:
+
+```text
+1. POST /audit/review-gate
+2. Receive human_review.review_items
+3. GET /human-review/decision-template
+4. Reviewer fills decision JSON
+5. POST /audit/after-human-approval
+6. Run metric recommendation, baselines, MLflow, SHAP, and final report
+```
+
+This makes the API workflow clear and stateless.
+
+---
+
+## Data Flow
 
 ```text
 CSV Upload
- ↓
+  |
+  v
 Dataset Loaded
- ↓
-Audit Workflow State Created
- ↓
-Each Module Adds Results to State
- ↓
-Baseline Models Trained
- ↓
-MLflow Logs Experiments
- ↓
-Explainability Generated
- ↓
+  |
+  v
+Workflow State Created
+  |
+  v
+Audit Modules Add Results to State
+  |
+  v
+Risk Aggregator Builds Review Summary
+  |
+  v
+Decision Router Chooses Next Step
+  |
+  v
+Human Review Gate
+  |
+  v
+Approved Workflow Continues
+  |
+  v
+Baseline Models + MLflow + SHAP
+  |
+  v
 LLM Explains Deterministic Results
- ↓
+  |
+  v
 Final JSON + Markdown Report
 ```
 
 ---
 
-# Folder Responsibilities
+## Folder Responsibilities
 
 ```text
 app/
@@ -321,11 +490,13 @@ src/audit/
 
 Contains:
 
-- Profiling
+- Dataset profiling
 - Problem detection
 - Data quality audit
 - Leakage detection
-- Class imbalance
+- Class imbalance detection
+- Risk aggregation
+- Decision routing
 - Metric recommendation
 - Preprocessing
 - Baseline models
@@ -355,14 +526,24 @@ Contains:
 - Synthetic test datasets
 
 ```text
+docs/
+```
+
+Contains:
+
+- Architecture documentation
+- API documentation
+- Usage guide
+
+```text
 assets/
 ```
 
 Contains:
 
-- Diagrams
-- Screenshots
-- Branding assets
+- Architecture diagrams
+- Repository banner
+- Dashboard screenshots
 - Demo assets
 
 ```text
@@ -372,16 +553,28 @@ reports/
 Stores generated audit reports.
 
 ```text
+artifacts/
+```
+
+Stores generated runtime artifacts.
+
+```text
 data/
 ```
 
-Stores sample and uploaded datasets.
+Stores sample and local datasets.
+
+```text
+logs/
+```
+
+Stores application logs.
 
 ---
 
-# Configuration Design
+## Configuration Design
 
-Most behavior is controlled by:
+Most application behavior is controlled through:
 
 ```text
 config.yaml
@@ -398,19 +591,23 @@ Configurable areas include:
 - Modeling defaults
 - Metric defaults
 - Preprocessing behavior
+- Report output paths
 
-This avoids hardcoded behavior inside modules.
+This keeps behavior configurable and avoids hardcoding settings inside modules.
 
 ---
 
-# Logging
+## Logging
 
-The project uses centralized logging with:
+The project uses centralized logging.
 
-- Console logging
-- Rotating file logs
+Logging features:
+
+- Console logs
+- File logs
 - Configurable log level
 - Duplicate handler prevention
+- Clear module-level loggers
 
 Logs are stored in:
 
@@ -420,9 +617,11 @@ logs/
 
 ---
 
-# Error Handling
+## Error Handling
 
-The project uses domain-specific exceptions, including:
+The project uses custom exceptions to make errors easier to debug and display.
+
+Examples:
 
 - `InvalidDatasetError`
 - `InvalidTargetColumnError`
@@ -436,51 +635,40 @@ The project uses domain-specific exceptions, including:
 - `ReportGenerationError`
 - `AgentWorkflowError`
 
-This improves debugging and API/UI error handling.
+This helps both the API and UI show cleaner error messages.
 
 ---
 
-# Human-in-the-Loop Design
+## Testing Strategy
 
-The system flags issues that require human review.
+The test suite uses deterministic synthetic datasets.
 
-Examples:
-
-- Possible leakage
-- Identifier-like columns
-- Severe imbalance
-- High missing values
-- Ambiguous problem type
-
-The system provides recommendations but does not make final modeling decisions automatically.
-
----
-
-# Testing Strategy
-
-The test suite uses synthetic datasets and covers:
+It covers:
 
 - Problem detection
-- Data quality audit
+- Data quality checks
 - Leakage detection
 - Class imbalance
 - Preprocessing
 - Baseline models
+- Metric recommendation
+- Profiler behavior
+- Workflow helper behavior
 
-The goal is deterministic, repeatable test behavior.
+The goal is repeatable behavior, not random test success.
 
 ---
 
-# Deployment Architecture
+## Deployment Architecture
 
-The project supports Docker deployment.
+The project supports local and Docker-based deployment.
 
-The Docker container runs:
+Docker runs:
 
 - FastAPI on port `8000`
 - Streamlit on port `8501`
 
-Docker Hub image:
+Docker image:
 
 ```text
 shivamrajput130/agentic-ml-audit-copilot:latest
@@ -488,80 +676,98 @@ shivamrajput130/agentic-ml-audit-copilot:latest
 
 ---
 
-# Design Principles
+## Design Principles
 
-## Deterministic First
+### Deterministic First
 
-All ML calculations are performed by Python.
+Python performs the ML computation and audit checks.
 
-## Human Review Required
+### Human Review Required
 
 Risk flags are treated as possible findings, not final decisions.
 
-## Modular Architecture
+### Modular Architecture
 
-Each audit stage is isolated and independently maintainable.
+Each audit stage has a focused responsibility.
 
-## Configuration Driven
+### Configuration Driven
 
-Behavior is controlled through config files.
+Runtime behavior is controlled through configuration files.
 
-## Reproducibility
+### Reproducibility
 
-Random seeds, sklearn pipelines, and MLflow improve reproducibility.
+Scikit-learn pipelines, fixed random seeds, and MLflow improve reproducibility.
 
-## Separation of Concerns
+### Separation of Concerns
 
-UI, API, workflow, audit modules, reporting, and utilities remain separate.
+UI, API, workflow, audit modules, explainability, reporting, and utilities remain separate.
+
+### Honest Automation
+
+The system does not pretend to replace expert judgment. It helps users review data risks before modeling.
 
 ---
 
-# Current Limitations
+## Current Limitations
 
-Current version focuses on:
+The current version focuses on:
 
 - CSV datasets
 - Tabular ML
-- Classification and regression
+- Classification
+- Regression
 - Single-machine execution
+- Baseline model benchmarking
 
 Not currently included:
 
 - Distributed processing
 - Time-series auditing
 - Data drift monitoring
+- Feature drift monitoring
+- Fairness certification
 - Authentication
 - Multi-user workspaces
 - Kubernetes deployment
 
 ---
 
-# Future Architecture
+## Future Architecture
 
 Planned future modules:
 
 ```text
 Authentication
- ↓
+  |
+  v
 User Workspaces
- ↓
+  |
+  v
 Dataset Versioning
- ↓
+  |
+  v
 Data Drift Detection
- ↓
-Fairness & Bias Analysis
- ↓
+  |
+  v
+Feature Drift Detection
+  |
+  v
+Fairness and Bias Analysis
+  |
+  v
 Hyperparameter Optimization
- ↓
+  |
+  v
 Model Registry
- ↓
+  |
+  v
 Cloud Deployment
 ```
 
 ---
 
-# Summary
+## Summary
 
-Agentic ML Audit Copilot uses a modular, deterministic-first architecture for auditing tabular ML datasets before model development.
+Agentic ML Audit Copilot uses a modular, deterministic-first architecture to audit tabular ML datasets before baseline modeling.
 
-The system combines data quality checks, leakage-risk detection, metric recommendation, baseline modeling, MLflow tracking, explainability, FastAPI, Streamlit, Docker, and LLM-assisted reporting while keeping final decisions human-in-the-loop.
+The system combines data quality checks, possible leakage detection, class imbalance analysis, metric recommendation, baseline models, MLflow tracking, explainability, FastAPI, Streamlit, Docker, and LLM-assisted reporting while keeping risky decisions human-in-the-loop.

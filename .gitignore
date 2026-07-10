@@ -1,51 +1,68 @@
-# Python-generated files
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
+
+# Build outputs
 build/
 dist/
 wheels/
 *.egg-info/
+agentic_ml_audit_copilot.egg-info/
 
 # Virtual environments
 .venv/
 venv/
 env/
+ENV/
 
-# Environment files
+# Environment files and secrets
 .env
 .env.*
+!.env.example
 
-# Uploads / runtime data
+# Uploads and local runtime data
 data/uploads/
 
 # Logs
 logs/
 *.log
 
-# Reports
+# Generated reports
 reports/*.md
 reports/*.json
 reports/*.html
 reports/*.pdf
 !reports/.gitkeep
 
-# Artifacts
+# Runtime artifacts and experiment tracking
 artifacts/
 mlruns/
 mlflow.db
 
-# Streamlit
+# Streamlit secrets
 .streamlit/secrets.toml
 
-# OS / editor
+# Test, lint, and coverage cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS and editor files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Test/cache
-.pytest_cache/
-.coverage
-htmlcov/
-.cache/
+# Docker local overrides
+docker-compose.override.yml

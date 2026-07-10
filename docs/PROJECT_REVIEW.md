@@ -2,374 +2,516 @@
 
 ## Overview
 
-**Agentic ML Audit Copilot** is an end-to-end machine learning audit platform that evaluates tabular datasets before model development.
+**Agentic ML Audit Copilot** is a deterministic-first machine learning audit system for tabular datasets.
 
-Instead of optimizing models immediately, the system performs a deterministic audit of the dataset to identify potential risks that could negatively impact downstream machine learning performance.
+The project reviews a dataset before baseline model training. It checks data quality, possible leakage risks, class imbalance, metric suitability, workflow risk, baseline performance, explainability, and report readiness.
 
-The project combines traditional machine learning engineering practices with workflow orchestration, experiment tracking, explainability, and LLM-assisted reporting while keeping all ML computation deterministic.
+The goal is not to replace an ML engineer or act as an AutoML system. The goal is to behave like a practical ML reviewer that helps answer:
+
+> Is this dataset ready for responsible baseline modeling?
+
+The project combines ML engineering, workflow orchestration, experiment tracking, explainability, API design, dashboarding, Docker, testing, and LLM-assisted reporting while keeping all ML computation deterministic.
 
 ---
 
-# Objectives
+## Objectives
 
-The primary objectives of the project are to:
+The main objectives are:
 
 - Audit datasets before model training
-- Improve dataset quality assessment
-- Detect possible data leakage risks
+- Detect data quality issues
+- Surface possible leakage risks
+- Detect class imbalance
 - Recommend suitable evaluation metrics
 - Build reproducible preprocessing pipelines
-- Benchmark baseline models
-- Generate structured audit reports
-- Improve model transparency through explainability
+- Benchmark simple baseline models
+- Track experiments with MLflow
+- Explain baseline model behavior
+- Pause risky workflows for human review
+- Generate structured Markdown and JSON reports
+- Provide both Streamlit and FastAPI interfaces
 
 ---
 
-# Architecture Overview
+## Architecture Overview
 
-The project follows a modular architecture where every audit stage is implemented as an independent component.
+The project follows a modular architecture where each audit stage has a focused responsibility.
 
 Current workflow:
 
+```text
+User
+  |
+  v
+Streamlit UI / FastAPI API
+  |
+  v
+CSV Upload + Target Selection
+  |
+  v
+LangGraph Audit Workflow
+  |
+  v
+Dataset Profiler
+  |
+  v
+Problem Type Detector
+  |
+  v
+Parallel Audit Layer
+  |-- Data Quality Audit
+  |-- Leakage Detection
+  |-- Class Imbalance Detection
+  |
+  v
+Risk Aggregator
+  |
+  v
+Decision Router
+  |
+  v
+Human Review Gate
+  |-- Stop / Fix Dataset
+  |-- Human Approved
+          |
+          v
+      Metric Recommender
+          |
+          v
+      Preprocessing Pipeline
+          |
+          v
+      Baseline Models
+          |
+          v
+      MLflow Tracking
+          |
+          v
+      Explainability / SHAP
+          |
+          v
+      LLM Audit Report
+          |
+          v
+      Audit Q&A
+          |
+          v
+      Final Dashboard + JSON Report
 ```
-Dataset Upload
 
-↓
-
-Dataset Profiling
-
-↓
-
-Problem Type Detection
-
-↓
-
-Data Quality Audit
-
-↓
-
-Possible Leakage Detection
-
-↓
-
-Metric Recommendation
-
-↓
-
-Class Imbalance Detection
-
-↓
-
-Preprocessing Pipeline
-
-↓
-
-Baseline Models
-
-↓
-
-MLflow Tracking
-
-↓
-
-Explainability
-
-↓
-
-LLM Report Generation
-```
-
-Each module has a single responsibility, making the codebase easier to test, maintain, and extend.
+This design makes the system easier to test, maintain, extend, and explain.
 
 ---
 
-# Key Strengths
+## Key Strengths
 
-## Modular Design
+## 1. Deterministic-First Design
 
-The project is divided into independent audit modules, including:
-
-- Dataset Profiling
-- Problem Type Detection
-- Data Quality Audit
-- Leakage Detection
-- Metric Recommendation
-- Class Imbalance Analysis
-- Preprocessing
-- Baseline Models
-- Explainability
-- Report Generation
-
-This modular approach improves maintainability and extensibility.
-
----
-
-## Deterministic-First Philosophy
-
-The project intentionally separates deterministic computation from generative AI.
+The project clearly separates deterministic computation from LLM-generated explanation.
 
 Python performs:
 
 - Dataset profiling
-- Data quality analysis
-- Leakage checks
-- Feature engineering
-- Baseline training
+- Data quality checks
+- Leakage risk detection
+- Class imbalance analysis
+- Metric recommendation logic
+- Preprocessing
+- Baseline model training
 - Metric calculation
-- Explainability
-- Experiment tracking
+- MLflow tracking
+- SHAP and feature importance generation
 
-The LLM is responsible only for:
+The LLM is used only for:
 
 - Report generation
-- Audit explanations
+- Audit explanation
 - Audit Q&A
 
-This design improves reproducibility and reduces the risk of AI-generated inconsistencies.
+This improves reproducibility and avoids relying on the LLM for core ML decisions.
 
 ---
 
-## Workflow Orchestration
+## 2. Human-in-the-Loop Workflow
 
-The complete audit process is orchestrated using LangGraph.
+The project includes a Human Review Gate for risky datasets.
 
-The workflow executes automatically while preserving deterministic execution order and modularity.
+The system can pause when it finds issues such as:
+
+- Possible target leakage
+- Identifier-like features
+- Severe class imbalance
+- High missing values
+- Ambiguous problem type
+- Other workflow-level risks
+
+Reviewer decisions include:
+
+- Accept risk and continue
+- Accept flag and fix later
+- Mark false positive
+- Needs data fix
+- Reject modeling
+
+This is one of the strongest parts of the project because it shows that the system does not blindly automate risky ML decisions.
 
 ---
 
-## Explainability
+## 3. Modular Architecture
 
-Model behavior can be interpreted using:
+The project is divided into clear modules:
 
-- SHAP values
-- Feature importance
-
-These components improve transparency by helping users understand which features influence predictions.
-
----
-
-## Experiment Tracking
-
-MLflow is integrated for experiment management.
-
-Tracked information includes:
-
-- Parameters
-- Metrics
+- Profiler
+- Problem detector
+- Data quality audit
+- Leakage detection
+- Class imbalance detection
+- Risk aggregation
+- Decision routing
+- Metric recommendation
+- Preprocessing
 - Baseline models
-- Artifacts
+- MLflow tracking
+- Explainability
+- LLM report generation
+- Workflow orchestration
 
-This improves reproducibility and simplifies experiment comparison.
+This structure improves maintainability and makes future audit modules easier to add.
 
 ---
 
-## User Experience
+## 4. LangGraph Workflow Orchestration
 
-The Streamlit dashboard provides:
+LangGraph is used to organize the audit workflow.
+
+This gives the project a clear agentic workflow structure without making the LLM responsible for deterministic computation.
+
+The workflow is useful for:
+
+- State management
+- Ordered execution
+- Conditional routing
+- Human review pause points
+- Future workflow expansion
+
+---
+
+## 5. FastAPI Backend
+
+The project exposes a REST API for programmatic access.
+
+Important API groups include:
+
+System endpoints:
+
+- `GET /`
+- `GET /health`
+- `GET /metadata`
+- `GET /workflow-guide`
+
+Audit endpoints:
+
+- `POST /audit`
+- `POST /audit/summary`
+- `GET /audit/modes`
+
+Human review endpoints:
+
+- `POST /audit/review-gate`
+- `GET /human-review/decision-template`
+- `POST /audit/after-human-approval`
+
+This makes the project more than a Streamlit-only demo.
+
+---
+
+## 6. Streamlit Dashboard
+
+The Streamlit dashboard provides a usable interface for the complete audit workflow.
+
+It includes:
 
 - Dataset upload
-- Audit execution
-- Interactive visualizations
-- Human review dashboard
-- Audit report generation
+- Target selection
+- Executive dashboard
+- Data quality view
+- Leakage risk view
+- Human Review Gate
+- Baseline model results
+- MLflow status
+- Explainability output
 - Report download
+- Audit Q&A
 
-The interface is designed to make complex ML auditing accessible without requiring command-line interaction.
-
----
-
-## API Support
-
-FastAPI exposes the complete audit workflow through REST endpoints.
-
-This allows the audit engine to be integrated into external systems and automated pipelines.
+The UI makes the project easier to understand for recruiters, reviewers, and users.
 
 ---
 
-## Testing and Quality Assurance
+## 7. Baseline-First Modeling
 
-The project includes automated tests covering core functionality.
+The project focuses on baseline models rather than pretending to provide final optimized models.
 
-Current test coverage includes:
+Classification baselines may include:
 
-- Dataset Profiling
-- Problem Type Detection
-- Data Quality Audit
-- Leakage Detection
-- Class Imbalance
-- Preprocessing
-- Baseline Models
+- Logistic Regression
+- Random Forest Classifier
 
-The repository also includes:
+Regression baselines may include:
 
-- Ruff formatting
+- Linear Regression
+- Random Forest Regressor
+
+This is a practical engineering choice because baselines help validate whether the data is usable before advanced optimization.
+
+---
+
+## 8. MLflow Experiment Tracking
+
+MLflow is integrated for experiment tracking.
+
+Tracked information may include:
+
+- Problem type
+- Model names
+- Parameters
+- Metrics
+- Best baseline model
+- Runtime metadata
+
+This improves experiment reproducibility and makes the project closer to a real ML engineering workflow.
+
+---
+
+## 9. Explainability
+
+The project includes explainability support through:
+
+- Feature importance
+- SHAP summaries when supported
+
+This helps users understand which features influence baseline model behavior.
+
+Explainability is especially useful after human approval because it gives the reviewer more confidence in the modeling result.
+
+---
+
+## 10. Testing and Code Quality
+
+The repository includes automated tests and quality checks.
+
+Current quality practices include:
+
+- pytest test suite
 - Ruff linting
+- Ruff formatting
 - GitHub Actions CI
-- Docker validation
+- Type hints
+- Structured logging
+- Custom exceptions
+- Configuration-driven behavior
+
+This improves reliability and makes the repository easier to maintain.
 
 ---
 
-# Supported Problem Types
+## Supported Scope
 
-Current support includes:
-
-- Binary Classification
-- Multiclass Classification
-- Regression
-
-Input format:
+Current support:
 
 - CSV datasets
+- Tabular ML
+- Binary classification
+- Multiclass classification
+- Regression
+- Local execution
+- Docker execution
+- Streamlit dashboard
+- FastAPI backend
 
 ---
 
-# Engineering Decisions
-
-Several implementation decisions were made intentionally.
+## Engineering Decisions
 
 ## Configuration-Driven Design
 
-Application behavior is controlled through `config.yaml`.
+Most behavior is controlled through:
 
-This avoids hardcoded values and improves flexibility.
+```text
+config.yaml
+```
 
----
-
-## Human-in-the-Loop Review
-
-Potential issues requiring manual validation are surfaced through the Human Review Dashboard.
-
-Examples include:
-
-- Possible target leakage
-- Identifier columns
-- High missing values
-- Severe class imbalance
-
-The application intentionally avoids making automatic business decisions.
+This reduces hardcoding and makes the system easier to modify.
 
 ---
 
-## Baseline-First Modeling
+## No Automatic Leakage Confirmation
 
-Rather than immediately optimizing models, the project first establishes baseline performance.
+The leakage module reports possible risks only.
 
-This provides a reliable reference point before advanced experimentation.
-
----
-
-## Production-Oriented Repository
-
-The repository includes:
-
-- Docker support
-- GitHub Actions CI
-- Automated tests
-- Documentation
-- Security policy
-- Contribution guidelines
-- Changelog
-- Type hints
-- Structured logging
-
-These practices improve maintainability and reproducibility.
+This is intentional. Leakage often requires domain knowledge, so the system surfaces review signals instead of claiming final truth.
 
 ---
 
-# Current Limitations
+## Human Review Before Risky Modeling
 
-The current version intentionally excludes:
+If serious risks are found, the workflow can pause before downstream modeling.
+
+This prevents the system from producing baseline results that may look valid but are based on unsafe assumptions.
+
+---
+
+## Preprocessing Inside Pipelines
+
+Preprocessing is handled inside scikit-learn pipelines.
+
+This helps reduce train-test leakage and keeps training behavior reproducible.
+
+---
+
+## Separate UI, API, and Workflow Logic
+
+The project separates:
+
+- Streamlit UI
+- FastAPI API
+- LangGraph workflow
+- Audit modules
+- Utilities
+- Reports
+
+This separation makes the project easier to debug and extend.
+
+---
+
+## Repository Quality Checklist
+
+| Area | Status |
+| --- | :---: |
+| Modular architecture | Yes |
+| Deterministic audit workflow | Yes |
+| Human Review Gate | Yes |
+| Risk Aggregator | Yes |
+| Decision Router | Yes |
+| FastAPI backend | Yes |
+| Streamlit dashboard | Yes |
+| LangGraph workflow | Yes |
+| MLflow tracking | Yes |
+| SHAP / feature importance | Yes |
+| Docker support | Yes |
+| GitHub Actions CI | Yes |
+| pytest test suite | Yes |
+| Ruff formatting and linting | Yes |
+| Documentation | Yes |
+| Security policy | Yes |
+| Contribution guide | Yes |
+| Changelog | Yes |
+
+---
+
+## Current Limitations
+
+The current version intentionally does not include:
 
 - Distributed processing
 - Time-series auditing
 - Data drift monitoring
 - Feature drift detection
+- Fairness and bias certification
 - Hyperparameter optimization
-- Fairness analysis
-- Authentication
+- Production authentication
 - Multi-user collaboration
-- Cloud-native deployment
+- Persistent reviewer history
+- Kubernetes deployment
+- Cloud-native deployment templates
 
-These features are planned for future releases.
+These are valid future improvements, but they are outside the current scope.
 
 ---
 
-# Future Roadmap
+## Future Roadmap
 
-Potential future enhancements include:
+Potential future improvements include:
 
-- Data Drift Detection
-- Feature Drift Detection
-- Fairness & Bias Analysis
-- Hyperparameter Optimization
-- Time-Series Support
-- PDF Reports
-- HTML Reports
-- Polars Support
-- Dask Support
+- Data drift detection
+- Feature drift detection
+- Fairness and bias analysis
+- Hyperparameter optimization
+- Time-series audit support
+- PDF reports
+- HTML reports
+- Excel and Parquet support
+- Polars support
+- Dask support
 - Authentication
-- Team Workspaces
-- Kubernetes Deployment
-- Cloud Deployment Templates
+- Team workspaces
+- Persistent human review history
+- Model registry integration
+- Kubernetes deployment
+- Cloud deployment templates
 
 ---
 
-# Intended Audience
+## Intended Audience
 
-The project is suitable for:
+This project is suitable for:
 
-- Data Scientists
-- Machine Learning Engineers
-- AI Engineers
-- Students
-- Researchers
-- Portfolio projects
+- Data science learners
+- ML engineering learners
+- Data scientists
+- Machine learning engineers
+- AI engineers
+- Portfolio reviewers
+- Internship and job applications
 - Educational demonstrations
 
 ---
 
-# Technologies
+## Technologies Used
 
-Core technologies include:
+Core technologies:
 
 - Python
 - Pandas
 - NumPy
-- Scikit-learn
+- scikit-learn
 - LangGraph
 - FastAPI
 - Streamlit
 - MLflow
 - SHAP
+- Groq
 - Docker
 - GitHub Actions
 - Ruff
-- Pytest
+- pytest
 
 ---
 
-# Repository Quality Checklist
+## Overall Review
 
-| Feature | Status |
-|----------|:------:|
-| Modular Architecture | ✅ |
-| Deterministic Workflow | ✅ |
-| FastAPI | ✅ |
-| Streamlit | ✅ |
-| LangGraph | ✅ |
-| MLflow | ✅ |
-| SHAP | ✅ |
-| Docker | ✅ |
-| GitHub Actions CI | ✅ |
-| Automated Tests | ✅ |
-| Documentation | ✅ |
+Agentic ML Audit Copilot is a strong portfolio-level ML engineering project because it goes beyond basic model training.
+
+It demonstrates:
+
+- Data auditing before modeling
+- Deterministic ML checks
+- Human-in-the-loop workflow design
+- FastAPI backend design
+- Streamlit dashboarding
+- MLflow tracking
+- Explainability
+- Docker deployment
+- Automated testing
+- Documentation discipline
+
+The strongest part of the project is the combination of deterministic audit checks with a Human Review Gate. This makes the project more realistic than a simple ML dashboard or AutoML-style demo.
 
 ---
 
-# Conclusion
+## Conclusion
 
-Agentic ML Audit Copilot demonstrates a production-oriented approach to auditing tabular machine learning datasets before model development.
+Agentic ML Audit Copilot demonstrates a practical, production-oriented approach to auditing tabular ML datasets before baseline model training.
 
-By combining deterministic machine learning, workflow orchestration, experiment tracking, explainability, containerization, automated testing, and LLM-assisted reporting, the project provides a structured foundation for building reliable machine learning workflows.
+By combining deterministic audit modules, workflow orchestration, human review, experiment tracking, explainability, FastAPI, Streamlit, Docker, testing, and documentation, the project provides a strong foundation for reliable ML engineering workflows.
 
-The modular architecture also allows additional audit capabilities to be integrated with minimal changes, making the project suitable for both learning and future expansion.
+The current version is best positioned as a high-quality portfolio and learning project with a clear path toward more advanced enterprise features.

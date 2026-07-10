@@ -2,18 +2,21 @@
 
 ## Overview
 
-Agentic ML Audit Copilot includes an automated test suite to verify the correctness, reliability, and stability of the core audit workflow.
+**Agentic ML Audit Copilot** includes an automated test suite for validating the core audit workflow.
 
-The project follows a deterministic-first philosophy, ensuring that ML computations produce consistent and reproducible results across supported environments.
+The project follows a deterministic-first testing approach. Tests are designed to verify that audit modules, preprocessing, baseline models, and workflow helpers behave consistently across runs.
+
+The test suite focuses on correctness, reproducibility, and regression protection.
 
 ---
 
-# Testing Framework
+## Testing Framework
 
 The project uses:
 
 - pytest
-- pytest-cov (optional)
+- Ruff for linting and formatting
+- GitHub Actions for CI
 
 Tests are located in:
 
@@ -21,253 +24,394 @@ Tests are located in:
 tests/
 ```
 
----
+Pytest configuration is stored in:
 
-# Test Coverage
-
-The current automated test suite covers:
-
-| Module | Status |
-|----------|:------:|
-| Dataset Profiling | ✅ |
-| Problem Type Detection | ✅ |
-| Data Quality Audit | ✅ |
-| Leakage Detection | ✅ |
-| Class Imbalance | ✅ |
-| Preprocessing Pipeline | ✅ |
-| Baseline Models | ✅ |
+```text
+pytest.ini
+```
 
 ---
 
-# Running All Tests
+## Test Configuration
+
+Current `pytest.ini`:
+
+```ini
+[pytest]
+pythonpath = .
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts =
+    -q
+    --strict-config
+    --strict-markers
+```
+
+This configuration keeps test discovery simple and strict.
+
+---
+
+## Run All Tests
 
 Run the complete test suite:
 
 ```bash
-uv run pytest
+uv run pytest -q
 ```
 
-Verbose output:
+Run with more output:
 
 ```bash
 uv run pytest -v
 ```
 
-Expected output:
-
-```text
-==============================
-96 passed
-==============================
-```
-
 ---
 
-# Run a Single Test File
+## Run a Single Test File
 
 Example:
 
 ```bash
-uv run pytest tests/test_data_quality.py -v
+uv run pytest tests/test_data_quality.py -q
+```
+
+Another example:
+
+```bash
+uv run pytest tests/test_baseline_models.py -q
 ```
 
 ---
 
-# Run a Specific Test
+## Run a Specific Test
 
 Example:
 
 ```bash
-uv run pytest tests/test_data_quality.py::test_detects_missing_values -v
+uv run pytest tests/test_data_quality.py::test_detects_missing_values -q
 ```
 
 ---
 
-# Test Dataset Strategy
+## Run Code Quality Checks
 
-The test suite uses synthetic datasets created entirely in memory.
+Before committing changes, run:
 
-Benefits include:
+```bash
+uv run ruff check . --fix --unsafe-fixes
+uv run ruff format .
+uv run pytest -q
+```
+
+Recommended final check:
+
+```bash
+git status
+```
+
+---
+
+## Current Test Scope
+
+| Area | Covered |
+| --- | :---: |
+| Dataset profiling | Yes |
+| Problem type detection | Yes |
+| Data quality audit | Yes |
+| Leakage risk detection | Yes |
+| Class imbalance detection | Yes |
+| Metric recommendation | Yes |
+| Preprocessing pipeline | Yes |
+| Baseline models | Yes |
+| Workflow helper behavior | Yes |
+
+---
+
+## Test Dataset Strategy
+
+The tests use small synthetic datasets created in memory.
+
+Benefits:
 
 - Fast execution
+- No dependency on external files
 - Deterministic behavior
-- No dependency on external CSV files
-- Repeatable test results
+- Easier edge-case testing
+- Better regression protection
+
+This approach is preferred for unit tests because test behavior does not depend on local CSV files or external services.
 
 ---
 
-# Tested Scenarios
+## Tested Scenarios
 
 ## Dataset Profiling
 
-Current tests include:
+Tests may cover:
 
+- Valid datasets
 - Empty datasets
 - Missing values
 - Duplicate rows
-- Invalid datasets
 - Invalid target columns
+- Dataset shape and column summaries
 
 ---
 
 ## Problem Type Detection
 
-Current tests include:
+Tests may cover:
 
 - Binary classification
 - Multiclass classification
 - Regression
 - Constant targets
-- Integer-like regression targets
-- Missing targets
+- Numeric targets with few unique values
+- High-cardinality string targets
+- Missing or invalid targets
+
+Ambiguous cases should be marked safely instead of forcing an incorrect problem type.
 
 ---
 
 ## Data Quality Audit
 
-Current tests verify:
+Tests may cover:
 
 - Missing values
 - Duplicate rows
 - Constant columns
-- Identifier columns
-- Invalid datasets
+- Near-constant columns
+- Identifier-like columns
+- High-cardinality columns
+- Infinite values
+- Basic outlier checks
+- Invalid input handling
 
 ---
 
-## Leakage Detection
+## Leakage Risk Detection
 
-Current tests verify:
+Tests may cover:
 
 - Target-like column names
-- Duplicate target columns
-- Identifier-based leakage risks
-- Correlation-based leakage checks
+- Outcome-like feature names
+- Duplicate target-like columns
+- Identifier-based risks
+- Correlation-based risks
+- Proxy feature patterns
 - False-positive protection
 
-> **Note**
->
-> The application reports **possible leakage risks** only.
-> Leakage is never treated as confirmed automatically.
+Important rule:
+
+The application reports possible leakage risks only. Leakage is not treated as confirmed automatically.
 
 ---
 
-## Class Imbalance
+## Class Imbalance Detection
 
-Current tests verify:
+Tests may cover:
 
-- Balanced datasets
+- Balanced classification datasets
 - Moderate imbalance
 - Severe imbalance
-- Regression datasets
+- Multiclass imbalance
+- Regression datasets where imbalance is not applicable
+- JSON-safe not-applicable responses
+
+---
+
+## Metric Recommendation
+
+Tests may cover:
+
+- Binary classification metrics
+- Multiclass classification metrics
+- Imbalanced classification metrics
+- Regression metrics
+- Invalid or unknown problem types
+- Recommendation structure and JSON safety
 
 ---
 
 ## Preprocessing Pipeline
 
-Current tests verify:
+Tests may cover:
 
-- Feature separation
-- Train/test split
-- Sklearn preprocessing pipeline
+- Numeric feature handling
+- Categorical feature handling
+- Missing value handling
+- Train-test split behavior
+- scikit-learn pipeline creation
 - Invalid parameters
-- Missing values
+- Target column separation
+
+Preprocessing should stay inside scikit-learn pipelines to reduce train-test leakage risk.
 
 ---
 
 ## Baseline Models
 
-Current tests verify:
+Tests may cover:
 
 - Classification baselines
 - Regression baselines
-- Missing target handling
 - Invalid problem types
+- Missing target handling
 - Best model selection
 - Metric calculation
+- JSON-safe result formatting
+
+Baseline tests should verify sanity-check behavior, not advanced model optimization.
 
 ---
 
-# Test Screenshot
+## Workflow Tests
 
-![Test Suite](../assets/screenshots/test_suite.png)
+Workflow-related tests may cover:
+
+- State preparation
+- Risk aggregation
+- Decision routing
+- Human review status
+- Paused workflow behavior
+- Approved workflow continuation
+- JSON-safe output handling
+
+The Human Review Gate should make it clear when modeling is paused and why.
 
 ---
 
-# Continuous Integration
+## Continuous Integration
 
-Every push and pull request automatically triggers GitHub Actions.
+GitHub Actions can be used to run checks automatically on push and pull request events.
 
-The CI pipeline performs:
+A typical CI workflow should run:
 
 - Dependency installation
-- Ruff formatting check
 - Ruff linting
-- Automated test execution
+- Ruff formatting check
+- pytest test suite
 
-If any step fails, the workflow is marked as failed.
+If any step fails, the CI workflow should fail.
 
 ---
 
-# Writing New Tests
+## Writing New Tests
 
-Recommended structure:
+Use clear test names:
 
 ```python
-def test_example():
+def test_detects_missing_values():
     ...
 ```
 
-Each new feature should include:
+For each new feature, try to include:
 
-- Success case
-- Invalid input
-- Edge case
-- Regression test (when applicable)
+- A normal success case
+- An invalid input case
+- An edge case
+- A regression test for previous bugs, if relevant
 
 ---
 
-# Best Practices
+## Best Practices
 
 - Keep tests independent.
-- Prefer synthetic datasets.
-- Avoid network dependencies.
-- Avoid external files unless necessary.
-- Use deterministic assertions.
-- Test both expected and edge-case behavior.
+- Prefer small synthetic datasets.
+- Avoid network calls.
+- Avoid external files unless the test specifically needs them.
+- Keep assertions deterministic.
+- Test both success and failure behavior.
+- Do not hide important warnings unless there is a clear reason.
+- Avoid testing implementation details too tightly.
+- Prefer testing expected behavior and output structure.
 
 ---
 
-# Current Status
+## Common Commands
 
-Current project status:
+Run tests:
 
-```text
-✓ 96 Tests Passed
-✓ Ruff Formatting
-✓ Ruff Linting
-✓ GitHub Actions CI
-✓ Docker Build Verified
+```bash
+uv run pytest -q
+```
+
+Run tests with verbose output:
+
+```bash
+uv run pytest -v
+```
+
+Run one file:
+
+```bash
+uv run pytest tests/test_problem_detector.py -q
+```
+
+Run lint:
+
+```bash
+uv run ruff check .
+```
+
+Fix lint issues where safe:
+
+```bash
+uv run ruff check . --fix --unsafe-fixes
+```
+
+Format code:
+
+```bash
+uv run ruff format .
+```
+
+Run full local validation:
+
+```bash
+uv run ruff check . --fix --unsafe-fixes
+uv run ruff format .
+uv run pytest -q
 ```
 
 ---
 
-# Future Improvements
+## Expected Result
 
-Planned testing enhancements:
+A healthy test run should finish with all tests passing.
 
-- FastAPI integration tests
-- Streamlit UI tests
-- Docker validation tests
-- End-to-end workflow tests
-- Performance benchmarks
-- Stress testing
-- Model reproducibility tests
+Example:
+
+```text
+all tests passed
+```
+
+The exact number of tests may change as the project grows.
 
 ---
 
-# Summary
+## Future Testing Improvements
 
-The automated test suite validates the deterministic audit workflow and helps prevent regressions as the project evolves.
+Planned improvements:
 
-Testing focuses on correctness, reproducibility, maintainability, and production-oriented reliability.
+- FastAPI integration tests
+- Human review API tests
+- Streamlit workflow tests
+- Docker validation tests
+- End-to-end audit workflow tests
+- Performance benchmarks
+- Larger synthetic dataset tests
+- Error-handling regression tests
+- Report generation tests
+- MLflow tracking tests
+
+---
+
+## Summary
+
+The test suite helps keep Agentic ML Audit Copilot stable as the project evolves.
+
+Testing focuses on deterministic audit behavior, safe failure handling, JSON-safe outputs, and regression protection across the core ML audit workflow.

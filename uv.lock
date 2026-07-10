@@ -10,7 +10,7 @@ resolution-markers = [
 
 [[package]]
 name = "agentic-ml-audit-copilot"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -23,32 +23,44 @@ dependencies = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "protobuf" },
+    { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
+    { name = "pytz" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "setuptools" },
+    { name = "six" },
     { name = "streamlit" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
 all = [
+    { name = "httpx" },
+    { name = "iniconfig" },
     { name = "llvmlite" },
+    { name = "matplotlib" },
     { name = "numba" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pytest-mock" },
     { name = "ruff" },
     { name = "shap" },
 ]
 dev = [
+    { name = "httpx" },
+    { name = "iniconfig" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pytest-mock" },
     { name = "ruff" },
 ]
 explainability = [
     { name = "llvmlite" },
+    { name = "matplotlib" },
     { name = "numba" },
     { name = "shap" },
 ]
@@ -58,30 +70,38 @@ requires-dist = [
     { name = "agentic-ml-audit-copilot", extras = ["dev", "explainability"], marker = "extra == 'all'" },
     { name = "fastapi", specifier = ">=0.115.0,<1.0.0" },
     { name = "groq", specifier = ">=0.11.0,<1.0.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0,<1.0.0" },
+    { name = "iniconfig", marker = "extra == 'dev'", specifier = ">=2.0.0,<3.0.0" },
     { name = "joblib", specifier = ">=1.4.0,<2.0.0" },
     { name = "langchain-core", specifier = ">=0.3.0,<1.0.0" },
     { name = "langgraph", specifier = ">=0.2.70,<1.0.0" },
-    { name = "llvmlite", marker = "extra == 'explainability'", specifier = ">=0.43.0,<0.44.0" },
+    { name = "llvmlite", marker = "extra == 'explainability'", specifier = ">=0.43.0,<0.45.0" },
+    { name = "matplotlib", marker = "extra == 'explainability'", specifier = ">=3.8.0,<4.0.0" },
     { name = "mlflow", specifier = ">=2.19.0,<3.0.0" },
-    { name = "numba", marker = "extra == 'explainability'", specifier = ">=0.60.0,<0.61.0" },
+    { name = "numba", marker = "extra == 'explainability'", specifier = ">=0.60.0,<0.62.0" },
     { name = "numpy", specifier = ">=1.26.0,<2.0.0" },
     { name = "pandas", specifier = ">=2.1.0,<3.0.0" },
     { name = "plotly", specifier = ">=5.24.0,<7.0.0" },
-    { name = "protobuf", specifier = ">=4.25.0,<5.0.0" },
+    { name = "protobuf", specifier = ">=4.25.0,<6.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4,<9.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0,<7.0.0" },
+    { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.14.0,<4.0.0" },
+    { name = "python-dateutil", specifier = ">=2.9.0.post0,<3.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0,<2.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9,<1.0.0" },
+    { name = "pytz", specifier = ">=2024.2,<2027.0" },
     { name = "pyyaml", specifier = ">=6.0.0,<7.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0,<1.0.0" },
     { name = "scikit-learn", specifier = ">=1.5.0,<2.0.0" },
     { name = "scipy", specifier = ">=1.14.0,<2.0.0" },
     { name = "setuptools", specifier = ">=70.0.0" },
-    { name = "shap", marker = "extra == 'explainability'", specifier = ">=0.46.0,<0.47.0" },
+    { name = "shap", marker = "extra == 'explainability'", specifier = ">=0.46.0,<0.49.0" },
+    { name = "six", specifier = ">=1.17.0,<2.0.0" },
     { name = "streamlit", specifier = ">=1.41.0,<2.0.0" },
+    { name = "tzdata", specifier = ">=2024.2,<2027.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0,<1.0.0" },
 ]
-provides-extras = ["explainability", "dev", "all"]
+provides-extras = ["dev", "explainability", "all"]
 
 [[package]]
 name = "alembic"
@@ -1556,6 +1576,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/30/4c/f883ab8f0daad69f47efdf95f55a66b51a8b939c430dadce0611508d9e99/pytest_cov-6.3.0.tar.gz", hash = "sha256:35c580e7800f87ce892e687461166e1ac2bcb8fb9e13aea79032518d6e503ff2", size = 70398, upload-time = "2025-09-06T15:40:14.361Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/b4/bb7263e12aade3842b938bc5c6958cae79c5ee18992f9b9349019579da0f/pytest_cov-6.3.0-py3-none-any.whl", hash = "sha256:440db28156d2468cafc0415b4f8e50856a0d11faefa38f30906048fe490f1749", size = 25115, upload-time = "2025-09-06T15:40:12.44Z" },
+]
+
+[[package]]
+name = "pytest-mock"
+version = "3.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
 ]
 
 [[package]]

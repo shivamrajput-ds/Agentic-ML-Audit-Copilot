@@ -2,221 +2,278 @@
 
 This document outlines the planned development roadmap for **Agentic ML Audit Copilot**.
 
-The roadmap is intended as a guide and may evolve as the project grows.
+The roadmap is a guide, not a fixed promise. Priorities may change as the project evolves.
 
 ---
 
-# Vision
+## Vision
 
-Build a production-oriented, deterministic-first machine learning audit platform that helps data scientists evaluate tabular datasets before model development.
+Build a deterministic-first machine learning audit system that helps data scientists review tabular datasets before model training.
 
-The project aims to combine:
+The long-term goal is to combine:
 
-- Data Quality Auditing
-- Machine Learning Engineering
+- Data quality auditing
+- Possible leakage risk detection
+- Human-in-the-loop review
+- Baseline model benchmarking
 - Explainability
-- Experiment Tracking
-- Workflow Orchestration
-- Human-in-the-Loop Review
-- AI-Assisted Reporting
+- Experiment tracking
+- Workflow orchestration
+- API-first access
+- Clean reporting
+
+The project will continue to follow one important principle:
+
+> Python performs ML computation. The LLM explains the results.
 
 ---
 
-# Current Release
+## Current Release
 
-## Version 1.0.0 ✅
+## Version 1.1.0 - Completed
 
-Completed features:
+Current release includes:
 
-- Dataset Profiling
-- Problem Type Detection
-- Data Quality Audit
-- Possible Leakage Detection
-- Metric Recommendation
-- Class Imbalance Detection
-- Preprocessing Pipeline
-- Baseline Model Training
-- SHAP Explainability
-- Feature Importance
-- MLflow Experiment Tracking
-- LangGraph Workflow
+- Dataset profiling
+- Problem type detection
+- Data quality audit
+- Possible leakage risk detection
+- Class imbalance detection
+- Risk Aggregator
+- Decision Router
+- Human Review Gate
+- Reviewer decision workflow
+- Metric recommendation
+- Scikit-learn preprocessing pipeline
+- Baseline model training
+- Feature importance support
+- SHAP explainability support
+- MLflow experiment tracking
+- LangGraph workflow orchestration
 - FastAPI REST API
-- Streamlit Dashboard
-- Human Review Dashboard
-- Markdown Report Export
-- JSON Report Export
-- Docker Support
+- FastAPI human review endpoints
+- Streamlit dashboard
+- Audit Q&A
+- Markdown report export
+- JSON report export
+- Docker support
 - GitHub Actions CI
-- Automated Testing
+- pytest test suite
+- Ruff formatting and linting
+- Repository assets and documentation
 
 ---
 
-# Version 1.1
+## Version 1.2 - Data Format and Usability Improvements
 
 Planned improvements:
 
-- Excel (.xlsx) support
-- Parquet support
+- Excel dataset support
+- Parquet dataset support
 - JSON dataset support
 - Better missing-value visualizations
-- Improved leakage detection heuristics
-- Configurable baseline models
-- Performance optimizations
-- Faster SHAP execution
+- Better target distribution visualizations
+- Improved leakage risk summaries
+- Configurable baseline model selection
+- Improved report templates
+- Better dashboard download experience
+- Safer handling for large categorical columns
+
+Status: Planned
 
 ---
 
-# Version 1.2
+## Version 1.3 - Explainability Improvements
 
-Explainability improvements:
+Planned improvements:
 
-- Partial Dependence Plots (PDP)
-- ICE Plots
+- Partial Dependence Plots
+- ICE plots
 - LIME support
-- Model comparison dashboard
 - Feature interaction visualization
+- Model comparison dashboard
 - Better SHAP summaries
+- Clearer feature importance explanations
+- Explainability export support
+
+Status: Planned
 
 ---
 
-# Version 1.3
+## Version 1.4 - Advanced Data Auditing
 
-Advanced auditing:
+Planned improvements:
 
-- Data Drift Detection
-- Feature Drift Detection
+- Data drift detection
+- Feature drift detection
 - Dataset comparison
 - Schema validation
 - Data contracts
 - Feature statistics history
+- Train-test distribution comparison
+- Better outlier diagnostics
+- Domain rule validation support
+
+Status: Planned
 
 ---
 
-# Version 1.4
+## Version 1.5 - Machine Learning Enhancements
 
-Machine learning improvements:
+Planned improvements:
 
-- Hyperparameter Optimization
-- Feature Selection Suggestions
+- Hyperparameter optimization
 - Cross-validation dashboard
+- Feature selection suggestions
 - Model calibration analysis
-- Probability calibration
+- Probability calibration plots
 - Additional baseline models
+- Configurable model registry hooks
+- Better metric comparison views
+
+Status: Planned
 
 ---
 
-# Version 1.5
+## Version 1.6 - Human Review and Governance
 
-Enterprise capabilities:
+Planned improvements:
 
-- User authentication
-- Role-based access control
-- Team workspaces
-- Audit history
-- Project management
-- Cloud storage integration
+- Persistent human review history
+- Reviewer identity tracking
+- Approval audit logs
+- Review status dashboard
+- Multi-reviewer support
+- Role-based approval flow
+- Dataset approval history
+- Exportable review decision records
+
+Status: Planned
 
 ---
 
-# Version 2.0
+## Version 2.0 - Scalability and Enterprise Readiness
 
-Scalability improvements:
+Planned improvements:
 
 - Polars support
 - Dask support
-- Ray integration
-- Distributed processing
+- Chunk-based processing
+- Out-of-core execution
 - Large dataset support
-- Parallel workflow execution
+- Background audit jobs
+- Progress tracking
+- API job status endpoint
+- Remote MLflow setup guide
+- Cloud deployment templates
+
+Status: Future
 
 ---
 
-# Future Ideas
+## Future Ideas
 
-Potential future modules include:
+Possible future modules:
 
-- Time-Series Auditing
-- Fairness & Bias Analysis
-- AutoML integration
+- Time-series auditing
+- Fairness and bias analysis
 - PDF reports
 - HTML reports
-- Email notifications
-- Kubernetes deployment
-- Cloud deployment templates
+- Email report delivery
+- Dataset versioning
+- Model registry integration
+- Cloud storage connectors
 - REST API versioning
-- Model Registry integration
-- Dataset Versioning
 - Monitoring dashboards
+- Kubernetes deployment
+- Team workspaces
+- Authentication and authorization
+
+Status: Idea
 
 ---
 
-# Documentation Roadmap
+## Documentation Roadmap
 
 Planned documentation improvements:
 
-- More architecture diagrams
-- Video tutorials
-- API examples
-- Deployment guides
-- Example datasets
-- Benchmark documentation
+- More API request examples
+- More sample datasets
+- End-to-end demo guide
+- Deployment examples
+- Troubleshooting guide
+- MLflow usage guide
+- Human review workflow examples
+- Report interpretation guide
+
+Status: Planned
 
 ---
 
-# Testing Roadmap
+## Testing Roadmap
 
 Future testing goals:
 
-- Integration tests
-- FastAPI endpoint tests
-- Streamlit UI tests
+- FastAPI integration tests
+- Streamlit workflow tests
 - Docker validation tests
+- End-to-end audit workflow tests
+- Human review API tests
 - Performance benchmarks
-- Stress testing
-- End-to-end workflow testing
+- Larger synthetic dataset tests
+- Error-handling regression tests
+
+Status: Planned
 
 ---
 
-# Community Goals
+## Community Roadmap
 
 Future community improvements:
 
-- Good First Issues
-- Contributor Guide improvements
-- More examples
-- Better issue templates
-- Discussion board
+- Good first issues
+- Issue templates
+- Pull request template
+- More example workflows
+- Contributor setup guide
+- Project discussion board
 - Project wiki
 
----
-
-# Guiding Principles
-
-The project will continue to follow these principles:
-
-- Deterministic-first machine learning
-- Human-in-the-loop review
-- Modular architecture
-- Reproducibility
-- Explainability
-- Production-oriented engineering
-- Open-source best practices
+Status: Planned
 
 ---
 
-# Status Legend
+## Guiding Principles
+
+Future development should follow these principles:
+
+- Keep ML computation deterministic
+- Keep human review explicit
+- Keep modules small and testable
+- Avoid over-automation of risky decisions
+- Keep API responses JSON-safe
+- Keep preprocessing inside pipelines
+- Keep documentation accurate
+- Avoid exaggerated claims
+- Prefer reliable baselines before advanced optimization
+
+---
+
+## Status Legend
 
 | Status | Meaning |
-|---------|---------|
-| ✅ | Completed |
-| 🚧 | In Progress |
-| 📅 | Planned |
-| 💡 | Idea / Future Exploration |
+| --- | --- |
+| Completed | Already implemented |
+| Planned | Intended for a future release |
+| Future | Larger architectural improvement |
+| Idea | Possible future exploration |
 
 ---
 
-# Summary
+## Summary
 
-Agentic ML Audit Copilot is an evolving project focused on building a reliable, explainable, and production-oriented machine learning audit platform.
+Agentic ML Audit Copilot is evolving toward a stronger ML audit and review platform.
 
-The roadmap reflects planned enhancements while maintaining the project's core philosophy of deterministic ML computation, modular design, and human-in-the-loop decision support.
+The current version already supports deterministic tabular data auditing, human-in-the-loop review, baseline modeling, MLflow tracking, SHAP explainability, FastAPI, Streamlit, Docker, and documentation.
+
+Future releases will focus on broader data format support, stronger explainability, drift detection, governance, scalability, and deployment readiness while preserving the core deterministic-first design.

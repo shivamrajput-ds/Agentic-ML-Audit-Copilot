@@ -1,33 +1,60 @@
-# Runtime dependencies for Agentic ML Audit Copilot.
-# Stable stack for Python 3.12.
+# Requirements for Agentic ML Audit Copilot.
+# Stable pinned stack for Python 3.11/3.12.
+#
+# Install:
+#   uv pip install -r requirements.txt
+#
+# Note:
+#   This file includes runtime + dev + explainability dependencies so the full
+#   portfolio project can run tests, FastAPI, Streamlit, MLflow, and SHAP.
 
-pandas==2.2.3
+# Core data stack
 numpy==1.26.4
+pandas==2.2.3
 scipy==1.14.1
 scikit-learn==1.5.2
 joblib==1.4.2
+python-dateutil==2.9.0.post0
+pytz==2026.2
+tzdata==2026.2
+six==1.17.0
 
+# Agent/workflow stack
 langgraph==0.2.74
 langchain-core==0.3.31
 
+# Experiment tracking
 mlflow==2.22.5
 protobuf==4.25.8
 
+# LLM/reporting
 groq==0.13.1
 python-dotenv==1.0.1
 PyYAML==6.0.2
 
+# API
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 
+# UI/visualization
 streamlit==1.41.1
 plotly==5.24.1
+matplotlib==3.9.4
 
+# Explainability
 shap==0.46.0
 numba==0.60.0
 llvmlite==0.43.0
 
+# Testing and development
 pytest==8.4.2
 pytest-cov==5.0.0
+pytest-mock==3.14.0
+httpx==0.28.1
 ruff==0.8.6
+iniconfig==2.1.0
+
+# Build/package helpers
+setuptools==75.8.0
+wheel==0.45.1

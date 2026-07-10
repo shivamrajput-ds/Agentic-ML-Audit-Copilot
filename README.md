@@ -1,856 +1,651 @@
 <p align="center">
-  <img src="assets/branding/banner.png" width="100%" alt="Agentic ML Audit Copilot Banner">
+  <img src="assets/branding/repo_banner.png" width="100%" alt="Agentic ML Audit Copilot Banner">
 </p>
 
-<h1 align="center">
-🤖 Agentic ML Audit Copilot
-</h1>
+<h1 align="center">Agentic ML Audit Copilot</h1>
 
 <p align="center">
-<b>Human-in-the-Loop • Deterministic-First • Machine Learning Audit Platform</b>
+  <b>Human-in-the-loop ML audit system before model training</b>
 </p>
 
 <p align="center">
-
-A production-ready platform that audits tabular machine learning datasets before model development by combining deterministic machine learning, explainability, experiment tracking, and grounded LLM-assisted reporting.
-
+  A deterministic-first ML engineering project that audits tabular datasets before model development,
+  surfaces data risks, pauses risky workflows for human review, benchmarks baseline models,
+  tracks experiments, explains results, and generates audit reports.
 </p>
-
----
 
 <p align="center">
-
-<img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python">
-
-<img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi">
-
-<img src="https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit">
-
-<img src="https://img.shields.io/badge/LangGraph-Agentic%20Workflow-blue?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/MLflow-Experiment%20Tracking-0194E2?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/SHAP-Explainability-orange?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker">
-
-<img src="https://img.shields.io/badge/Tests-96%20Passed-success?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge">
-
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?style=for-the-badge&logo=streamlit" alt="Streamlit">
+  <img src="https://img.shields.io/badge/FastAPI-API-009688?style=for-the-badge&logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/LangGraph-Workflow-6A5ACD?style=for-the-badge" alt="LangGraph">
+  <img src="https://img.shields.io/badge/scikit--learn-ML-F7931E?style=for-the-badge&logo=scikit-learn" alt="scikit-learn">
+  <img src="https://img.shields.io/badge/MLflow-Tracking-0194E2?style=for-the-badge" alt="MLflow">
+  <img src="https://img.shields.io/badge/SHAP-Explainability-FFB000?style=for-the-badge" alt="SHAP">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker" alt="Docker">
+  <img src="https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge" alt="Tests">
+  <img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge" alt="License">
 </p>
-
----
 
 <p align="center">
-
-<a href="https://shivamrajput-ds-agentic-ml-audit-copilo-appstreamlit-app-joxap5.streamlit.app">
-
-<img src="https://img.shields.io/badge/🚀_Live_Streamlit_App-success?style=for-the-badge">
-
-</a>
-
-<a href="https://youtu.be/kFzNam74QBc">
-
-<img src="https://img.shields.io/badge/🎥_YouTube_Demo-red?style=for-the-badge">
-
-</a>
-
-<a href="https://hub.docker.com/r/shivamrajput130/agentic-ml-audit-copilot">
-
-<img src="https://img.shields.io/badge/🐳_Docker_Hub-2496ED?style=for-the-badge">
-
-</a>
-
-<a href="https://github.com/shivamrajput-ds/Agentic-ML-Audit-Copilot">
-
-<img src="https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github">
-
-</a>
-
+  <a href="https://shivamrajput-ds-agentic-ml-audit-copilo-appstreamlit-app-joxap5.streamlit.app">
+    <img src="https://img.shields.io/badge/Live_Streamlit_App-success?style=for-the-badge" alt="Live Streamlit App">
+  </a>
+  <a href="https://youtu.be/kFzNam74QBc">
+    <img src="https://img.shields.io/badge/YouTube_Demo-red?style=for-the-badge" alt="YouTube Demo">
+  </a>
+  <a href="https://hub.docker.com/r/shivamrajput130/agentic-ml-audit-copilot">
+    <img src="https://img.shields.io/badge/Docker_Hub-2496ED?style=for-the-badge&logo=docker" alt="Docker Hub">
+  </a>
 </p>
 
 ---
 
-# 📌 Overview
+## Overview
 
-Most machine learning projects start by directly training models.
+Most ML projects start by training models too early.
 
-However, poor data quality, hidden target leakage, severe class imbalance, and incorrect evaluation metrics often lead to misleading results.
+In real projects, poor data quality, possible target leakage, class imbalance, and wrong metrics can make a model look better than it actually is.
 
-**Agentic ML Audit Copilot** introduces a deterministic-first audit workflow that evaluates a dataset **before** model training.
+**Agentic ML Audit Copilot** solves this by reviewing a dataset before model training. It behaves like a junior ML reviewer: it runs deterministic audit checks, explains the risk, and asks for human approval when the dataset is not clearly safe.
 
-Instead of acting like an AutoML system, the project behaves like a **Junior Machine Learning Reviewer**, performing automated checks while keeping the final decision with the user.
-
-The workflow combines:
-
-- Dataset Profiling
-- Data Quality Assessment
-- Possible Leakage Detection
-- Class Imbalance Analysis
-- Metric Recommendation
-- Scikit-learn Baseline Models
-- MLflow Experiment Tracking
-- SHAP Explainability
-- Human Review Dashboard
-- LLM-powered Audit Explanation
+This is not an AutoML tool. The goal is not to train the best possible model. The goal is to decide whether the dataset is ready for responsible baseline modeling.
 
 ---
 
-# 🚀 Why This Project?
+## What It Checks
 
-Real-world ML projects often fail because of problems in the data rather than the model itself.
-
-Common issues include:
-
-- Missing values
-- Duplicate rows
-- Constant features
-- Identifier columns
-- Hidden leakage
-- Incorrect evaluation metrics
-- Severe class imbalance
-- Lack of experiment tracking
-- Poor explainability
-
-Instead of training increasingly complex models, this project first answers a more important question:
-
-> **"Is this dataset actually ready for machine learning?"**
-
----
-
-# 🎯 Key Highlights
-
-✅ Deterministic-first workflow
-
-✅ Human-in-the-loop review
-
-✅ LangGraph workflow orchestration
-
-✅ MLflow experiment tracking
-
-✅ SHAP explainability
-
-✅ FastAPI REST API
-
-✅ Streamlit Dashboard
-
-✅ Docker Deployment
-
-✅ GitHub Actions CI
-
-✅ Automated Testing
+| Area | What the system does |
+| --- | --- |
+| Dataset Profiling | Rows, columns, data types, missing values, target summary |
+| Problem Detection | Detects classification or regression setup |
+| Data Quality | Finds missing values, duplicates, constant columns, ID-like columns, and outliers |
+| Leakage Risk | Flags target-like columns, proxy features, and suspicious correlations |
+| Class Imbalance | Measures class distribution and severity |
+| Metric Recommendation | Suggests suitable metrics for the detected problem type |
+| Preprocessing | Builds scikit-learn preprocessing pipelines |
+| Baseline Models | Trains simple baseline models for comparison |
+| MLflow | Tracks experiment metadata and model metrics |
+| Explainability | Generates feature importance and SHAP-based summaries |
+| Human Review | Pauses risky workflows for reviewer decisions |
+| Reports | Exports Markdown and JSON audit reports |
+| API | Provides FastAPI endpoints for programmatic audit access |
+| UI | Provides a Streamlit dashboard for interactive review |
 
 ---
 
-# 🎬 Live Demo
+## Key Ideas
 
-## 🌐 Streamlit Application
-
-**Live Application**
-
-https://shivamrajput-ds-agentic-ml-audit-copilo-appstreamlit-app-joxap5.streamlit.app/
-
----
-
-## 🎥 YouTube Walkthrough
-
-Watch the complete project demonstration.
-
-https://youtu.be/kFzNam74QBc
+- **Deterministic-first:** Python performs the audit checks and ML computation.
+- **Human-in-the-loop:** Risky datasets require reviewer approval before modeling continues.
+- **LLM is not the judge:** The LLM is used only for explanation, Q&A, and report writing.
+- **Baseline-first:** The system trains simple baselines instead of pretending to be AutoML.
+- **Transparent workflow:** Every major decision is visible in the dashboard and API response.
 
 ---
 
-## 📸 Demo Preview
+## Demo
 
-<p align="center">
-
-<img src="assets/demo/demo_gif.gif" width="100%">
-
-</p>
-
----
-
-# ⭐ Features
-
-| Category | Features |
-|------------|------------------------------------------------|
-| Dataset Audit | Dataset profiling, schema inspection, missing values, duplicate detection |
-| Problem Detection | Binary classification, multiclass classification, regression |
-| Data Quality | Missing values, duplicates, constant features, identifiers, outliers |
-| Leakage Detection | Target-like columns, proxy features, correlation-based checks |
-| Metric Recommendation | Automatic metric recommendation based on task |
-| Class Imbalance | Severity detection with recommendations |
-| Preprocessing | Scikit-learn preprocessing pipelines |
-| Baseline Models | Logistic Regression, Random Forest, Linear Regression |
-| Explainability | SHAP summaries, Feature Importance |
-| Experiment Tracking | MLflow integration |
-| API | FastAPI REST API |
-| Dashboard | Interactive Streamlit UI |
-| Reports | Markdown & JSON |
-| Deployment | Docker |
-| Testing | pytest |
-| Code Quality | Ruff |
-| Workflow | LangGraph |
-
----
-
-# 🏗 System Architecture
-
-<p align="center">
-
-<img src="assets/diagrams/architecture.png" width="95%">
-
-</p>
-
-The platform separates user interaction, workflow orchestration, audit modules, explainability, and reporting into independent layers.
-
-This modular design makes the application easier to maintain, extend, and test.
-
----
-
-# 🔄 Audit Workflow
+### Live Application
 
 ```text
-CSV Upload
-      │
-      ▼
-Dataset Profiling
-      │
-      ▼
-Problem Detection
-      │
-      ▼
-Data Quality Audit
-      │
-      ▼
-Possible Leakage Detection
-      │
-      ▼
-Class Imbalance Analysis
-      │
-      ▼
-Metric Recommendation
-      │
-      ▼
-Preprocessing Pipeline
-      │
-      ▼
-Baseline Models
-      │
-      ▼
-MLflow Tracking
-      │
-      ▼
-Explainability
-      │
-      ▼
-LLM Audit Report
-      │
-      ▼
-Human Review Dashboard
+https://shivamrajput-ds-agentic-ml-audit-copilo-appstreamlit-app-joxap5.streamlit.app/
+```
+
+### YouTube Walkthrough
+
+```text
+https://youtu.be/kFzNam74QBc
+```
+
+### Demo Preview
+
+<p align="center">
+  <img src="assets/demo/demo_git.gif" width="100%" alt="Agentic ML Audit Copilot Demo">
+</p>
+
+---
+
+## System Architecture
+
+<p align="center">
+  <img src="assets/architecture/01_system_architecture.png" width="95%" alt="System Architecture">
+</p>
+
+The architecture separates the UI, API, LangGraph workflow, audit modules, risk routing, human review, modeling, tracking, explainability, and reporting layers.
+
+---
+
+## Human-in-the-Loop Workflow
+
+<p align="center">
+  <img src="assets/architecture/02_hitl_workflow.png" width="95%" alt="Human-in-the-Loop Workflow">
+</p>
+
+The workflow pauses at the Human Review Gate when important risks are found.
+
+Reviewer decisions include:
+
+- Accept risk and continue
+- Accept flag and fix later
+- Mark false positive
+- Needs data fix
+- Reject modeling
+
+If the final human decision approves modeling, the workflow continues to metric recommendation, preprocessing, baseline models, MLflow, SHAP, and final report generation.
+
+If rejected, the workflow stops so the dataset can be fixed first.
+
+---
+
+## FastAPI Workflow
+
+<p align="center">
+  <img src="assets/architecture/03_fastapi_workflow.png" width="95%" alt="FastAPI Workflow">
+</p>
+
+The API supports both direct audit runs and a human-review-first workflow.
+
+---
+
+## Dashboard Screenshots
+
+### Streamlit Home
+
+<p align="center">
+  <img src="assets/screenshots/01_streamlit_home.png" width="95%" alt="Streamlit Home">
+</p>
+
+### Human Review Gate
+
+<p align="center">
+  <img src="assets/screenshots/02_human_review_gate.png" width="95%" alt="Human Review Gate">
+</p>
+
+### Executive Dashboard
+
+<p align="center">
+  <img src="assets/screenshots/03_executive_dashboard.png" width="95%" alt="Executive Dashboard">
+</p>
+
+### FastAPI Docs
+
+<p align="center">
+  <img src="assets/screenshots/04_fastapi_docs.png" width="95%" alt="FastAPI Docs">
+</p>
+
+---
+
+## Workflow
+
+```text
+User
+  |
+  v
+Streamlit UI / FastAPI API
+  |
+  v
+CSV Upload + Target Selection
+  |
+  v
+LangGraph Audit Workflow
+  |
+  v
+Dataset Profiler
+  |
+  v
+Problem Type Detector
+  |
+  v
+Parallel Audit Layer
+  |-- Data Quality Audit
+  |-- Leakage Detection
+  |-- Class Imbalance Detection
+  |
+  v
+Risk Aggregator
+  |
+  v
+Decision Router
+  |
+  v
+Human Review Gate
+  |-- Stop / Fix Data
+  |-- Human Approved
+          |
+          v
+      Metric Recommender
+          |
+          v
+      Preprocessing Pipeline
+          |
+          v
+      Baseline Models
+          |
+          v
+      MLflow Tracking
+          |
+          v
+      Explainability / SHAP
+          |
+          v
+      LLM Audit Report
+          |
+          v
+      Audit Q&A
+          |
+          v
+      Final Dashboard + JSON Report
 ```
 
 ---
 
-# 📷 Application Screenshots
+## Technology Stack
 
-## Streamlit Dashboard
-
-![](assets/screenshots/streamlit_home.png)
-
----
-
-## Dataset Upload
-
-![](assets/screenshots/dataset_upload.png)
-
----
-
-## Data Quality Dashboard
-
-![](assets/screenshots/data_quality.png)
-
----
-
-## Leakage Detection
-
-![](assets/screenshots/leakage_risks.png)
-
----
-
-## Baseline Models
-
-![](assets/screenshots/baseline_models.png)
-
----
-
-## SHAP Explainability
-
-![](assets/screenshots/explainability_shap.png)
-
----
-
-## MLflow Tracking
-
-![](assets/screenshots/mlflow_tracking.png)
-
----
-
-## Swagger API
-
-![](assets/screenshots/swagger_ui.png)
-
----
-
-# 🛠 Technology Stack
-
-| Layer | Technologies |
-|---------|------------------------------|
+| Layer | Tools |
+| --- | --- |
 | Language | Python |
-| Data | Pandas, NumPy |
-| Machine Learning | Scikit-learn |
-| Workflow | LangGraph |
-| Explainability | SHAP |
-| Experiment Tracking | MLflow |
-| Dashboard | Streamlit |
+| Data Processing | Pandas, NumPy |
+| Machine Learning | scikit-learn |
+| Workflow Orchestration | LangGraph |
 | API | FastAPI |
-| LLM | Groq |
+| Dashboard | Streamlit |
+| Experiment Tracking | MLflow |
+| Explainability | SHAP |
+| LLM Provider | Groq |
 | Visualization | Plotly |
 | Testing | pytest |
-| Linting | Ruff |
+| Linting and Formatting | Ruff |
 | Packaging | uv |
 | Deployment | Docker |
 
 ---
 
-# ⚡ Quick Start
+## Quick Start
 
-## Clone Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/shivamrajput-ds/Agentic-ML-Audit-Copilot.git
-
 cd Agentic-ML-Audit-Copilot
 ```
 
----
-
-## Create Virtual Environment
+### 2. Create a virtual environment
 
 ```bash
 uv venv
 ```
 
-Windows
+Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
 
-Linux / macOS
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
 ```
 
----
-
-## Install Dependencies
+### 3. Install dependencies
 
 ```bash
 uv pip install -r requirements.txt
+uv pip install -e .
 ```
 
----
+### 4. Configure environment variables
 
-## Configure Environment Variables
-
-Create
-
-```
-.env
-```
-
-Example
+Create a `.env` file:
 
 ```text
-GROQ_API_KEY=YOUR_GROQ_API_KEY
+GROQ_API_KEY=your_groq_api_key
 ```
 
----
-
-## Run Streamlit
+For deterministic audit-only usage, the LLM can be disabled if supported by your config:
 
 ```bash
-uv run streamlit run app/streamlit_app.py
+export LLM_ENABLED=false
 ```
 
-Open
+Windows PowerShell:
 
+```powershell
+$env:LLM_ENABLED="false"
 ```
-http://localhost:8501
-```
 
----
-
-## Run FastAPI
+### 5. Run Streamlit
 
 ```bash
-uv run uvicorn app.api:app --reload
-```
-
-Open
-
-```
-http://localhost:8000/docs
-```
-
----
-
-# 🐳 Docker
-
-The project is fully containerized.
-
-Pull directly from Docker Hub:
-
-```bash
-docker pull shivamrajput130/agentic-ml-audit-copilot:latest
-```
-
-Or build locally:
-
-```bash
-docker build -t agentic-ml-audit-copilot .
-```
-
-➡️ **README Part 2** continues with:
-- Docker Usage
-- API
-- MLflow
-- Testing
-- Project Structure
-- Documentation
-- Roadmap
-- Design Philosophy
-- Contributing
-- License
-- Author
-- Footer
-
----
-
-# 🐳 Docker Deployment
-
-The application is fully containerized and can be executed without installing Python locally.
-
-## Pull Image from Docker Hub
-
-```bash
-docker pull shivamrajput130/agentic-ml-audit-copilot:latest
-```
-
-## Run Container
-
-```bash
-docker run --rm \
--p 8501:8501 \
--p 8000:8000 \
--e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
-shivamrajput130/agentic-ml-audit-copilot:latest
+uv run streamlit run app/streamlit_app.py --server.port 8501
 ```
 
 Open:
 
 ```text
-Streamlit
 http://localhost:8501
-
-FastAPI
-http://localhost:8000/docs
-
-Health Check
-http://localhost:8000/health
 ```
 
-## Build Locally
+### 6. Run FastAPI
+
+Use a second terminal:
 
 ```bash
-docker build -t agentic-ml-audit-copilot .
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-```bash
-docker run --rm \
--p 8501:8501 \
--p 8000:8000 \
--e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
-agentic-ml-audit-copilot
+Open:
+
+```text
+http://127.0.0.1:8000/docs
 ```
 
 ---
 
-# 🌐 REST API
+## API Endpoints
 
-The project exposes a FastAPI backend for programmatic access.
+### System
 
 | Method | Endpoint | Description |
-|---------|----------|-------------|
-| GET | `/` | API Information |
-| GET | `/health` | Health Check |
-| POST | `/audit` | Run Complete Audit |
-| POST | `/audit/summary` | Lightweight Summary |
+| --- | --- | --- |
+| GET | `/` | API information |
+| GET | `/health` | Health check |
+| GET | `/metadata` | Project and runtime metadata |
+| GET | `/workflow-guide` | Human review workflow guide |
 
-Swagger UI
+### Audit
 
-```
-http://localhost:8000/docs
-```
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/audit` | Run audit workflow |
+| POST | `/audit/summary` | Run audit and return lightweight summary |
+| GET | `/audit/modes` | Show available audit modes |
 
-ReDoc
+### Human Review
 
-```
-http://localhost:8000/redoc
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/audit/review-gate` | Run audit until human review gate |
+| GET | `/human-review/decision-template` | Return reviewer decision JSON template |
+| POST | `/audit/after-human-approval` | Continue workflow after reviewer approval |
+
+### Human Review API Flow
+
+```text
+1. POST /audit/review-gate
+2. Review human_review.review_items
+3. GET /human-review/decision-template
+4. Fill reviewer decision JSON
+5. POST /audit/after-human-approval
+6. Continue to baselines, MLflow, SHAP, and final report
 ```
 
 ---
 
-# 📊 MLflow Experiment Tracking
+## MLflow Tracking
 
-Every audit automatically logs experiment metadata.
+The project logs baseline experiment information with MLflow.
 
-Tracked information includes
+Typical tracked information includes:
 
-- Experiment Name
-- Baseline Models
-- Evaluation Metrics
+- Problem type
+- Baseline model names
+- Evaluation metrics
+- Best baseline model
 - Parameters
-- Best Model
-- Optional Model Artifacts
+- Runtime metadata
 
-Run MLflow locally
+Run MLflow UI locally:
 
 ```bash
-mlflow ui
+uv run mlflow ui
 ```
 
-Open
+Open:
 
-```
+```text
 http://localhost:5000
 ```
 
 ---
 
-# 🔍 Explainability
+## Testing
 
-The explainability module provides transparent model interpretation.
-
-Current capabilities include
-
-- SHAP Summary
-- Feature Importance
-- Human-readable explanations
-
-The goal is to help users understand **why** a baseline model produced a particular result rather than only reporting evaluation metrics.
-
----
-
-# 🧪 Testing
-
-The repository includes automated unit tests covering the core audit workflow.
-
-Run all tests
+Run the full test suite:
 
 ```bash
-uv run pytest
+uv run pytest -q
 ```
 
-Run a specific test
+Run a specific test file:
 
 ```bash
-uv run pytest tests/test_data_quality.py -v
-```
-
-Current status
-
-```
-✅ 96 Tests Passed
+uv run pytest tests/test_data_quality.py -q
 ```
 
 ---
 
-# ✨ Code Quality
+## Code Quality
 
-Ruff is used for linting and formatting.
-
-Run lint
+Run Ruff checks:
 
 ```bash
-uv run ruff check .
+uv run ruff check . --fix --unsafe-fixes
 ```
 
-Format code
+Format the project:
 
 ```bash
 uv run ruff format .
 ```
 
-GitHub Actions automatically runs
+---
 
-- Ruff
-- Tests
-- Formatting checks
+## Docker
 
-on every push and pull request.
+Pull the image:
+
+```bash
+docker pull shivamrajput130/agentic-ml-audit-copilot:latest
+```
+
+Run the container:
+
+```bash
+docker run --rm \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  shivamrajput130/agentic-ml-audit-copilot:latest
+```
+
+Build locally:
+
+```bash
+docker build -t agentic-ml-audit-copilot .
+```
+
+Run local image:
+
+```bash
+docker run --rm \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  agentic-ml-audit-copilot
+```
 
 ---
 
-# 📂 Project Structure
+## Project Structure
 
 ```text
 Agentic-ML-Audit-Copilot/
-│
 ├── app/
 │   ├── api.py
 │   └── streamlit_app.py
-│
 ├── src/
 │   ├── audit/
-│   ├── utils/
-│   └── ...
-│
-├── assets/
-│
-├── data/
-│
-├── docs/
-│
-├── reports/
-│
+│   └── utils/
 ├── tests/
-│
-├── Dockerfile
+├── docs/
+├── assets/
+│   ├── architecture/
+│   ├── branding/
+│   ├── demo/
+│   └── screenshots/
+├── data/
+├── reports/
+├── artifacts/
+├── logs/
+├── .github/
+├── .streamlit/
 ├── config.yaml
-├── requirements.txt
 ├── pyproject.toml
-└── README.md
+├── requirements.txt
+├── uv.lock
+├── pytest.ini
+├── Dockerfile
+├── DOCKER.md
+├── README.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
+└── LICENSE.md
 ```
 
 ---
 
-# 📚 Documentation
+## Documentation
 
-Comprehensive documentation is available in the **docs/** directory.
-
-| Document | Description |
-|----------|-------------|
-| ARCHITECTURE.md | Complete system architecture |
-| API.md | FastAPI documentation |
-| DOCKER.md | Docker guide |
-| USAGE.md | Usage guide |
-| TESTING.md | Testing documentation |
-| ROADMAP.md | Future roadmap |
-| PROJECT_REVIEW.md | Technical project review |
-| KNOWN_LIMITATIONS.md | Current limitations |
-| SECURITY.md | Security policy |
-| ASSETS.md | Assets guide |
+| Document | Purpose |
+| --- | --- |
+| `docs/ARCHITECTURE.md` | System architecture and workflow design |
+| `docs/API.md` | FastAPI endpoint guide |
+| `docs/USAGE.md` | How to use the Streamlit app and API |
+| `DOCKER.md` | Docker build and run guide |
+| `CHANGELOG.md` | Release history |
+| `CONTRIBUTING.md` | Contribution guidelines |
+| `CODE_OF_CONDUCT.md` | Community rules |
+| `SECURITY.md` | Security policy |
+| `LICENSE.md` | License details |
 
 ---
 
-# 🎯 Engineering Highlights
+## Engineering Highlights
 
-The project demonstrates practical software engineering concepts including
-
-- Modular Architecture
-- Configuration-driven Development
-- Human-in-the-loop Design
-- Deterministic ML Pipelines
-- LangGraph Workflow Orchestration
-- MLflow Experiment Tracking
-- SHAP Explainability
-- Docker Deployment
-- FastAPI Backend
-- Streamlit Dashboard
-- Automated Testing
-- GitHub Actions CI
-
----
-
-# 💡 Design Philosophy
-
-The project follows five core principles.
-
-### Deterministic First
-
-Python performs all machine learning computation.
-
-The LLM never performs prediction or model training.
+- LangGraph-based audit workflow
+- Parallel deterministic audit checks
+- Human Review Gate for risky datasets
+- FastAPI backend with Swagger documentation
+- Streamlit dashboard with audit tabs and downloads
+- MLflow experiment tracking
+- SHAP and feature importance support
+- JSON-safe API responses
+- Configuration-driven behavior
+- Centralized logging and exception handling
+- pytest test suite
+- Ruff linting and formatting
+- Dockerized local deployment
+- GitHub Actions CI support
 
 ---
 
-### Human-in-the-Loop
+## Current Limitations
 
-Potential risks are surfaced to the user.
-
-Final decisions remain with the ML practitioner.
-
----
-
-### Modular Design
-
-Every audit module has a single responsibility.
-
-This makes the project easier to maintain and extend.
-
----
-
-### Reproducibility
-
-Scikit-learn pipelines, fixed random seeds, and MLflow improve reproducibility.
-
----
-
-### Separation of Concerns
-
-The UI, API, workflow engine, audit modules, explainability, reporting, and utilities remain independent.
-
----
-
-# ⚠ Current Limitations
-
-Current scope intentionally focuses on
+This project currently focuses on:
 
 - CSV datasets
-- Tabular Machine Learning
-- Classification
-- Regression
+- Tabular ML
+- Classification and regression
 - Single-machine execution
+- Baseline model benchmarking
 
-Future versions may include
+It is not a replacement for:
 
-- Data Drift Detection
-- Feature Drift Detection
-- Fairness Analysis
-- Time-Series Auditing
-- Authentication
-- Team Workspaces
-- Kubernetes Deployment
-
----
-
-# 🛣 Roadmap
-
-Planned improvements
-
-- Excel Support
-- Parquet Support
-- Polars Integration
-- Dask Integration
-- Data Drift Detection
-- Bias & Fairness Analysis
-- Hyperparameter Optimization
-- PDF Reports
-- HTML Reports
-- Cloud Storage
-- Authentication
-- Model Registry
+- Full enterprise data governance
+- Security review
+- Production monitoring
+- Fairness certification
+- Model approval boards
 
 ---
 
-# 🤝 Contributing
+## Roadmap
+
+Planned improvements:
+
+- Data drift detection
+- Feature drift detection
+- Fairness and bias analysis
+- Hyperparameter optimization
+- PDF reports
+- HTML reports
+- Polars support
+- Dask support
+- Authentication
+- Team workspaces
+- Kubernetes deployment
+- Cloud deployment templates
+
+---
+
+## Contributing
 
 Contributions are welcome.
 
-Before opening a Pull Request
+Before opening a pull request:
 
 ```bash
+uv run ruff check . --fix --unsafe-fixes
 uv run ruff format .
+uv run pytest -q
 ```
 
-```bash
-uv run ruff check .
-```
+Please read:
 
-```bash
-uv run pytest
-```
-
-Please read
-
-```
+```text
 CONTRIBUTING.md
+CODE_OF_CONDUCT.md
 ```
 
 ---
 
-# 📜 License
+## License
 
-This project is released under the **MIT License**.
+This project is released under the MIT License.
 
-See
+See:
 
-```
+```text
 LICENSE.md
 ```
 
-for details.
-
 ---
 
-# 👨‍💻 Author
+## Author
 
-## Shivam Rajput
+**Shivam Rajput**
 
 Data Science | Machine Learning | MLOps | Agentic AI
 
-### Connect with me
-
-- 🌐 Portfolio  
-  https://shivamrajput-ds.github.io/portfolio-website/
-
-- 💻 GitHub  
-  https://github.com/shivamrajput-ds
-
-- 💼 LinkedIn  
-  https://www.linkedin.com/in/shivam-rajput-ds/
-
-- 🐳 Docker Hub  
-  https://hub.docker.com/r/shivamrajput130/agentic-ml-audit-copilot
-
-- 🎥 YouTube  
-  https://youtu.be/kFzNam74QBc
-
-- 📊 Kaggle  
-  https://www.kaggle.com/shivamja
-
-- 💻 LeetCode  
-  https://leetcode.com/u/ShivamSynapse/
-
-- 🐦 X (Twitter)  
-  https://x.com/ShivamR65014299
-
----
-
-# ⭐ Support
-
-If you found this project useful,
-
-please consider giving it a ⭐ on GitHub.
-
-It helps increase the visibility of the project and motivates future improvements.
+- Portfolio: `https://shivamrajput-ds.github.io/portfolio-website/`
+- GitHub: `https://github.com/shivamrajput-ds`
+- LinkedIn: `https://www.linkedin.com/in/shivam-rajput-ds/`
+- Docker Hub: `https://hub.docker.com/r/shivamrajput130/agentic-ml-audit-copilot`
+- YouTube: `https://youtu.be/kFzNam74QBc`
+- Kaggle: `https://www.kaggle.com/shivamja`
+- LeetCode: `https://leetcode.com/u/ShivamSynapse/`
+- X: `https://x.com/ShivamR65014299`
 
 ---
 
 <p align="center">
-
-Built with ❤️ using
-
-Python • Scikit-learn • FastAPI • Streamlit • LangGraph • MLflow • SHAP • Docker • Groq
-
+  <b>Agentic ML Audit Copilot</b>
 </p>
 
 <p align="center">
-
-<b>Agentic ML Audit Copilot • v1.0.0</b>
-
+  Python • scikit-learn • FastAPI • Streamlit • LangGraph • MLflow • SHAP • Docker • Groq
 </p>

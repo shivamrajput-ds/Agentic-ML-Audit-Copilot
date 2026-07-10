@@ -2,213 +2,321 @@
 
 ## Overview
 
-**Agentic ML Audit Copilot** is designed to audit tabular machine learning datasets before model development.
+**Agentic ML Audit Copilot** is designed to audit tabular machine learning datasets before baseline model training.
 
-The project intentionally focuses on deterministic, reproducible, and modular ML auditing rather than supporting every possible machine learning workflow.
+The project intentionally focuses on deterministic, reproducible, and modular ML auditing. It does not try to support every possible ML workflow in the first release.
 
-This document describes the current limitations of the project and highlights areas planned for future development.
+This document explains the current limitations and future improvement areas.
 
 ---
 
-# Supported Dataset Formats
+## Dataset Formats
 
 Currently supported:
 
-- CSV (.csv)
+- CSV
 
-Planned support:
+Not currently supported:
 
-- Excel (.xlsx)
+- Excel
 - Parquet
 - JSON
 - SQL databases
 - Cloud storage connectors
 
+Planned improvements may include:
+
+- Excel support
+- Parquet support
+- JSON support
+- Cloud storage integration
+- Database connectors
+
 ---
 
-# Dataset Size
+## Dataset Size
 
-The application is optimized for **small to medium-sized tabular datasets**.
+The application is currently optimized for small to medium-sized tabular datasets.
 
-Since preprocessing is currently performed using Pandas, very large datasets may require substantial memory.
+Current limitations:
+
+- Pandas-based processing
+- Single-machine execution
+- Memory usage depends on dataset size and number of columns
+- SHAP computation may be slow for larger datasets
 
 Future improvements may include:
 
-- Polars
-- Dask
+- Polars support
+- Dask support
 - Chunk-based processing
 - Out-of-core execution
+- Performance benchmarks
 
 ---
 
-# Supported Machine Learning Tasks
+## Supported ML Tasks
 
-Current support:
+Currently supported:
 
-- Binary Classification
-- Multiclass Classification
+- Binary classification
+- Multiclass classification
 - Regression
 
 Not currently supported:
 
-- Time Series Forecasting
+- Time-series forecasting
 - Clustering
-- Survival Analysis
-- Recommendation Systems
-- Reinforcement Learning
+- Survival analysis
+- Recommendation systems
+- Reinforcement learning
+- Computer vision
+- Audio or speech models
+- Large language model evaluation
 
 ---
 
-# Leakage Detection
+## Leakage Detection
 
-The leakage module reports **possible leakage risks** only.
+The leakage module reports possible leakage risks only.
 
-Current checks include:
+Current checks may include:
 
 - Target-like column names
-- Identifier columns
+- Outcome-like feature names
+- Identifier-like columns
 - Highly correlated features
-- Proxy feature detection
-- Duplicate target-like columns
+- Proxy feature patterns
+- Duplicate or target-derived-looking columns
 
-The application intentionally **does not automatically confirm leakage**.
+Important limitation:
 
-Human review is required before making modeling decisions.
+The system does not automatically confirm leakage.
+
+Leakage findings should be treated as review signals. A human reviewer should decide whether the flagged column is truly unsafe for modeling.
 
 ---
 
-# Data Quality Checks
+## Human Review Workflow
+
+The Human Review Gate is designed to make risk decisions explicit.
+
+Current limitations:
+
+- Human review decisions are passed through the current request flow
+- No persistent reviewer account system
+- No approval history database
+- No role-based approval workflow
+- No multi-reviewer sign-off
+
+Future improvements may include:
+
+- Persistent review history
+- Reviewer identity management
+- Approval audit logs
+- Team review workflows
+- Role-based access control
+
+---
+
+## Data Quality Checks
 
 Current checks include:
 
 - Missing values
 - Duplicate rows
 - Constant columns
+- Near-constant columns
 - High-cardinality columns
 - Identifier-like columns
+- Basic outlier checks
 - Basic dataset statistics
 
-Currently not included:
+Not currently included:
 
-- Schema validation
+- Formal schema validation
 - Data contracts
 - Business rule validation
 - Cross-dataset consistency checks
+- Data lineage checks
+- Domain-specific validation rules
 
 ---
 
-# Explainability
+## Metric Recommendation
 
-Current explainability features:
+The metric recommendation module suggests suitable metrics based on the detected task and audit context.
 
-- SHAP values
-- Feature importance
+Current limitations:
 
-Future improvements may include:
-
-- Partial Dependence Plots (PDP)
-- ICE Plots
-- LIME
-- Counterfactual explanations
+- Recommendations are rule-based
+- Domain-specific business metrics are not inferred automatically
+- Cost-sensitive metrics are not fully supported
+- Ranking, survival, and time-series metrics are not supported
 
 ---
 
-# Baseline Modeling
+## Baseline Modeling
 
 The application trains baseline models only.
 
-Classification:
+Classification baselines may include:
 
 - Logistic Regression
 - Random Forest Classifier
 
-Regression:
+Regression baselines may include:
 
 - Linear Regression
 - Random Forest Regressor
 
-The objective is benchmarking rather than maximizing predictive performance.
+Current limitations:
 
-Hyperparameter optimization is intentionally outside the current scope.
+- No advanced model tuning
+- No hyperparameter optimization
+- No neural network training
+- No model registry promotion flow
+- No production model serving workflow
 
----
-
-# Distributed Computing
-
-The application currently executes on a single machine.
-
-Distributed execution frameworks such as:
-
-- Spark
-- Ray
-- Dask
-
-are not yet supported.
+The goal is sanity-check benchmarking, not final model optimization.
 
 ---
 
-# Authentication & User Management
+## Explainability
 
-The application currently does not include:
+Current explainability features may include:
 
-- User authentication
-- Authorization
-- Role-based access control
-- Multi-user accounts
+- Feature importance
+- SHAP summaries when supported
 
-The dashboard is intended primarily for local usage, demonstrations, and portfolio purposes.
+Current limitations:
+
+- SHAP can be slow for larger datasets
+- Some model and data combinations may not support SHAP cleanly
+- Explanations are baseline-focused
+- No fairness-specific explanation layer
+
+Future improvements may include:
+
+- Partial Dependence Plots
+- ICE plots
+- LIME
+- Counterfactual explanations
+- Fairness-aware explanations
 
 ---
 
-# API Security
+## MLflow Tracking
 
-The FastAPI application currently does not include:
+MLflow is used for experiment tracking.
+
+Current limitations:
+
+- Local tracking is the default setup
+- Remote MLflow server configuration is not automated
+- Model registry workflow is not fully implemented
+- No automatic model promotion or approval lifecycle
+
+Future improvements may include:
+
+- Remote MLflow setup guide
+- Model registry integration
+- Experiment comparison dashboard
+- Artifact storage configuration
+
+---
+
+## Streamlit Dashboard
+
+The Streamlit dashboard is designed for local usage, demos, and portfolio presentation.
+
+Current limitations:
+
+- Single-user usage
+- No login system
+- No collaborative workspaces
+- No persistent project history
+- No multi-user review queue
+- No cloud-native session storage
+
+---
+
+## FastAPI Security
+
+The current FastAPI service is designed for local and demo usage.
+
+Not currently included:
 
 - JWT authentication
 - OAuth2
 - API key authentication
 - Rate limiting
+- Request throttling
+- Role-based access control
+- Tenant isolation
 
-These capabilities are planned for future releases.
-
----
-
-# Streamlit Dashboard
-
-Current limitations include:
-
-- Single-user sessions
-- No collaborative workspaces
-- No persistent project history
-- No user account management
+Production deployments should add authentication, authorization, monitoring, rate limiting, and secure secret management.
 
 ---
 
-# MLflow Tracking
-
-MLflow experiments are tracked locally by default.
-
-Remote MLflow servers are supported through configuration but are not configured automatically.
-
----
-
-# Report Generation
+## Report Generation
 
 Current report formats:
 
 - Markdown
 - JSON
 
-Future formats may include:
+Not currently included:
 
-- PDF
-- HTML
+- PDF reports
+- HTML reports
+- Email delivery
+- Scheduled reports
+- Report version history
+
+Future improvements may include:
+
+- PDF export
+- HTML export
+- Shareable report links
+- Report templates
 
 ---
 
-# Testing
+## LLM Usage
 
-The automated test suite focuses primarily on deterministic audit modules.
+The LLM is used only for:
+
+- Audit explanations
+- Markdown report generation
+- Audit Q&A
+
+The LLM does not:
+
+- Train models
+- Compute metrics
+- Confirm leakage
+- Approve risky datasets
+- Replace human judgment
+
+All deterministic ML operations are performed using Python and scikit-learn.
+
+---
+
+## Testing
+
+The test suite focuses on deterministic audit modules and workflow behavior.
+
+Current testing scope includes:
+
+- Problem detection
+- Data quality checks
+- Leakage risk detection
+- Class imbalance checks
+- Preprocessing
+- Baseline models
+- Metric recommendation
+- Profiler behavior
 
 Future improvements may include:
 
@@ -221,55 +329,73 @@ Future improvements may include:
 
 ---
 
-# Production Deployment
+## Deployment
 
 The project includes Docker support.
 
-However, the following production capabilities are intentionally outside the current scope:
+Current limitations:
+
+- Single-container local deployment focus
+- No Kubernetes manifests
+- No Helm charts
+- No cloud deployment templates
+- No autoscaling setup
+- No centralized monitoring setup
+- No production-grade logging stack
+
+Future improvements may include:
 
 - Kubernetes deployment
+- Cloud deployment templates
 - Monitoring and alerting
 - Centralized logging
-- Auto-scaling
-- Service mesh integration
+- Health-based autoscaling
 
 ---
 
-# LLM Limitations
+## Production Readiness
 
-The LLM is used only for:
+This project is production-oriented in structure, but it should not be treated as a complete enterprise production system without additional hardening.
 
-- Report generation
-- Audit explanations
-- Audit question answering
+Before production use, consider adding:
 
-The LLM **does not perform machine learning computations**.
-
-All deterministic ML operations are executed using Python and Scikit-learn.
-
----
-
-# Future Roadmap
-
-Planned enhancements include:
-
-- Data Drift Detection
-- Feature Drift Detection
-- Fairness & Bias Analysis
-- Hyperparameter Optimization
-- Time-Series Auditing
-- Excel & Parquet Support
-- Polars Integration
-- Dask Integration
-- Cloud Storage Support
-- Authentication & User Management
-- Team Workspaces
-- Kubernetes Deployment
+- Authentication
+- Authorization
+- Rate limiting
+- Audit logging
+- Secure secret management
+- Monitoring and alerting
+- Data governance controls
+- Infrastructure hardening
+- Backup and recovery strategy
+- Compliance review
 
 ---
 
-# Summary
+## Roadmap
 
-Agentic ML Audit Copilot provides a production-oriented, deterministic workflow for auditing tabular machine learning datasets before model development.
+Planned improvement areas:
 
-While several advanced enterprise capabilities are intentionally outside the current scope, the modular architecture allows these features to be integrated in future releases with minimal architectural changes.
+- Data drift detection
+- Feature drift detection
+- Fairness and bias analysis
+- Hyperparameter optimization
+- PDF and HTML reports
+- Excel and Parquet support
+- Polars and Dask support
+- Authentication and user management
+- Team workspaces
+- Persistent human review history
+- Model registry support
+- Kubernetes deployment
+- Cloud deployment templates
+
+---
+
+## Summary
+
+Agentic ML Audit Copilot provides a deterministic-first workflow for auditing tabular ML datasets before baseline modeling.
+
+The current version focuses on CSV-based tabular classification and regression workflows, human review, baseline benchmarking, MLflow tracking, explainability, FastAPI, Streamlit, and report generation.
+
+Advanced enterprise features are intentionally outside the current scope, but the modular architecture is designed so they can be added in future releases.

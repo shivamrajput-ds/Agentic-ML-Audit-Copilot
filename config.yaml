@@ -1,86 +1,109 @@
 project:
-  name: "Agentic ML Audit Copilot"
-  version: "1.0.0"
-  author: "Shivam Rajput"
-  license: "MIT"
-
+  name: Agentic ML Audit Copilot
+  version: 1.1.0
+  author: Shivam Rajput
+  license: MIT
 random_seed: 42
-
 logging:
-  log_level: "INFO"
+  log_level: INFO
   console_logging: true
   file_logging: true
-  log_file: "logs/app.log"
+  propagate: false
+  log_file: logs/app.log
   max_bytes: 5000000
   backup_count: 5
-
 dataset:
   max_rows: 1000000
+  max_file_size_mb: 500
   sample_large_dataset: true
   profiling_sample_rows: 100000
   allowed_extensions:
-    - ".csv"
+  - .csv
   max_categories: 10
   large_file_warning_mb: 100
-
+  datetime_sample_size: 200
+  datetime_parse_threshold: 0.8
+  max_datetime_check_columns: 50
+  datetime_inference_sample_rows: 200
+  datetime_inference_max_columns: 50
+  datetime_parse_rate_threshold: 0.8
 audit:
   high_missing_threshold: 50
   high_cardinality_threshold: 50
   id_unique_percent_threshold: 95
   near_constant_threshold: 95
-
 missing_values:
   warning_threshold: 20
   high_threshold: 50
-
+data_quality:
+  rare_value_threshold_percent: 1.0
+  max_duplicate_column_checks: 300
+  max_duplicate_column_pairs: 100
+  max_findings_per_category: 25
+  max_quality_penalty_per_category: 35
+  max_column_summary_rows: 1000
+  flag_numeric_unique_as_id: false
 outliers:
   enabled: true
-  method: "iqr"
+  method: iqr
   iqr_multiplier: 1.5
-
+  min_non_null_values: 10
+  min_rows: 5
 correlation:
   enabled: true
-  threshold: 0.90
-
+  threshold: 0.9
+problem_detection:
+  classification_unique_threshold: 20
+  high_cardinality_threshold: 50
+  high_unique_percent_threshold: 80.0
+  low_unique_percent_threshold: 2.0
+  high_cardinality_review_threshold: 50
+  numeric_like_string_sample_size: 200
 imbalance:
   low_ratio_threshold: 1.5
   moderate_ratio_threshold: 3
   high_ratio_threshold: 10
   rare_class_threshold_percent: 5
-
+  min_class_count_for_stratify: 2
+  min_class_count_for_reliable_eval: 5
 leakage:
-  high_correlation_threshold: 0.90
+  high_correlation_threshold: 0.9
   classification_proxy_threshold: 0.75
   duplicate_target_threshold: 0.95
-  encoded_target_correlation_threshold: 0.90
-  mutual_information_threshold: 0.20
+  encoded_target_correlation_threshold: 0.9
+  mutual_information_threshold: 0.2
+  mutual_information_enabled: true
+  min_compare_rows: 10
+  mutual_information_max_rows: 10000
+  min_correlation_rows: 5
+  min_proxy_class_samples: 2
+  max_mi_rows: 10000
+  max_mi_features: 200
+  review_numeric_high_cardinality_as_id: false
   target_like_keywords:
-    - "target"
-    - "label"
-    - "outcome"
-    - "result"
-    - "final_result"
-    - "prediction"
-    - "predicted"
-    - "actual"
-    - "ground_truth"
-    - "grade"
-    - "score"
-    - "rank"
-    - "pass"
-    - "fail"
-    - "status"
-    - "class"
-    - "total"
-
+  - target
+  - label
+  - outcome
+  - result
+  - final_result
+  - prediction
+  - predicted
+  - actual
+  - ground_truth
+  - grade
+  - score
+  - rank
+  - pass
+  - fail
+  - status
+  - class
+  - total
 metrics:
-  classification_default: "f1_weighted"
-  regression_default: "rmse"
-
+  classification_default: f1_weighted
+  regression_default: rmse
 training:
   test_size: 0.2
   random_state: 42
-
 modeling:
   test_size: 0.2
   random_state: 42
@@ -90,80 +113,102 @@ modeling:
   random_forest_estimators: 200
   random_forest_min_samples_leaf: 2
   logistic_max_iter: 1000
-
+  fail_on_all_model_errors: true
 preprocessing:
-  numeric_imputer_strategy: "median"
-  categorical_imputer_strategy: "most_frequent"
+  numeric_imputer_strategy: median
+  categorical_imputer_strategy: most_frequent
+  numeric_fill_value: 0
+  categorical_fill_value: missing
   scale_numeric: true
   drop_id_like_columns: true
   drop_high_cardinality_columns: false
-
+  one_hot_max_categories: 0
+  sparse_threshold: 0.3
+  infer_datetime_columns: true
+  datetime_max_check_columns: 50
+  datetime_sample_size: 200
+  datetime_parse_threshold: 0.8
+  infer_string_datetime_columns: true
+  max_datetime_string_columns: 20
 workflow:
-  node_retry_attempts: 1
-  node_retry_sleep_seconds: 0.5
-  skip_imbalance_for_regression: true
-
+  max_retries: 0
+  retry_sleep_seconds: 0.5
+  parallel_audit_enabled: true
+  parallel_workers: 3
+  stop_on_critical_risk: false
+  critical_quality_threshold: 40.0
+  review_quality_threshold: 70.0
 mlflow:
   enabled: true
   tracking_uri: null
-  experiment_name: "agentic_ml_audit_baselines"
+  experiment_name: agentic_ml_audit_baselines
   log_models: true
   log_artifacts: true
-  artifact_path: "baseline_model"
-
+  artifact_path: baseline_model
+  nested_runs: true
+  max_param_length: 250
+  temp_dir: artifacts/mlflow_temp
 cache:
   enabled: true
-  directory: ".cache"
-
+  directory: .cache
 performance:
   parallel_jobs: -1
-
 api:
   max_upload_mb: 25
   cleanup_uploaded_files: true
+  upload_dir: data/uploads
   allowed_extensions:
-    - ".csv"
+  - .csv
+  allowed_content_types:
+  - text/csv
+  - application/csv
+  - application/vnd.ms-excel
+  - text/plain
+  - application/octet-stream
+  max_target_column_chars: 200
+  upload_chunk_size_bytes: 1048576
   cors_allow_origins:
-    - "*"
-  request_id_header: "X-Request-ID"
+  - '*'
+  request_id_header: X-Request-ID
   expose_headers:
-    - "X-Request-ID"
-
+  - X-Request-ID
+  - X-Process-Time
 streamlit:
   max_upload_mb: 25
   cleanup_uploaded_files: false
-  theme: "dark"
+  upload_dir: data/uploads
+  theme: dark
   allowed_extensions:
-    - ".csv"
+  - .csv
   show_raw_json: true
-
+  max_chat_history: 10
 reports:
-  output_dir: "reports"
-  default_report_path: "reports/audit_report.md"
+  output_dir: reports
+  default_report_path: reports/audit_report.md
   save_json: true
   save_markdown: true
-
 llm:
   enabled: true
-  provider: "groq"
-  model: "openai/gpt-oss-120b"
+  provider: groq
+  model: openai/gpt-oss-120b
   temperature: 0.2
   max_tokens: 2000
   timeout: 120
   max_retries: 3
   retry_base_seconds: 1
   cache_enabled: true
-  cache_dir: "artifacts/report_cache"
+  cache_dir: artifacts/report_cache
   hallucination_guard_enabled: true
-  prompt_version: "v1"
-
+  prompt_version: v2.1
+  max_context_chars: 18000
+  max_chat_question_chars: 1000
+  cache_max_bytes: 1000000
 security:
   allow_pickle_loading: false
   sanitize_downloads: true
-
+  sanitize_csv_downloads: true
 drift:
   enabled: false
-
 explainability:
   enabled: true
   run_shap: true
@@ -171,10 +216,9 @@ explainability:
   top_n_features: 20
   generate_plots: true
   plot_max_features: 20
-
+  max_background_samples: 50
+  max_local_explanations: 5
+  large_feature_warning_threshold: 1000
 visualization:
   dpi: 150
-  style: "plotly"
-
-problem_detection:
-  classification_unique_threshold: 20
+  style: plotly

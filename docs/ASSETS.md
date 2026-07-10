@@ -2,201 +2,309 @@
 
 ## Overview
 
-The `assets/` directory contains all visual resources used throughout **Agentic ML Audit Copilot**.
+The `assets/` directory contains the visual resources used in **Agentic ML Audit Copilot**.
 
-These assets are referenced in the README, project documentation, GitHub repository, Docker Hub, and YouTube demonstration to illustrate the application's architecture, workflow, user interface, and deployment.
+These assets are used in the README, documentation, GitHub repository preview, project demo, and portfolio presentation.
+
+The goal of this folder is simple:
+
+- Keep project visuals organized
+- Avoid duplicate screenshots
+- Keep documentation paths consistent
+- Make the repository look clean and professional
 
 ---
 
-# Directory Structure
+## Final Directory Structure
+
+Use this structure:
 
 ```text
 assets/
+├── architecture/
+│   ├── 01_system_architecture.png
+│   ├── 02_hitl_workflow.png
+│   └── 03_fastapi_workflow.png
 │
 ├── branding/
-│   ├── app_logo.png
-│   ├── cover_image.png
-│   ├── youtube_banner.png
-│   ├── youtube_profile.png
-│   └── youtube_thumbnail.png
+│   └── repo_banner.png
 │
 ├── demo/
-│   ├── demo_gif.gif
-│   ├── youtube_demo.png
-│   └── youtube_demo.txt
-│
-├── diagrams/
-│   ├── architecture.png
-│   ├── audit_pipeline.png
-│   ├── deployment_architecture.png
-│   ├── langgraph_flow.png
-│   ├── preprocessing_pipeline.png
-│   ├── repository_structure.png
-│   ├── system_design.png
-│   └── workflow_graph.png
+│   ├── demo_git.gif
+│   └── demo_script.md
 │
 └── screenshots/
-    ├── api_docs.png
-    ├── audit_report.png
-    ├── baseline_models.png
-    ├── ci_passed.png
-    ├── data_quality.png
-    ├── dataset_upload.png
-    ├── docker_hub.png
-    ├── explainability_shap.png
-    ├── feature_importance.png
-    ├── leakage_risks.png
-    ├── metric_recommendation.png
-    ├── mlflow_tracking.png
-    ├── streamlit_home.png
-    ├── swagger_ui.png
-    └── test_suite.png
+    ├── 01_streamlit_home.png
+    ├── 02_human_review_gate.png
+    ├── 03_executive_dashboard.png
+    └── 04_fastapi_docs.png
 ```
 
----
-
-# Branding Assets
-
-The branding folder contains project identity resources.
-
-| Asset | Purpose |
-|--------|----------|
-| `app_logo.png` | Application logo |
-| `cover_image.png` | GitHub social preview |
-| `youtube_banner.png` | YouTube channel banner |
-| `youtube_profile.png` | YouTube profile picture |
-| `youtube_thumbnail.png` | Project video thumbnail |
+Do not add extra image folders unless the project really needs them.
 
 ---
 
-# Architecture Diagrams
-
-These diagrams explain the overall system design.
-
-| Diagram | Description |
-|----------|-------------|
-| `architecture.png` | High-level architecture |
-| `audit_pipeline.png` | End-to-end audit pipeline |
-| `deployment_architecture.png` | Deployment overview |
-| `langgraph_flow.png` | LangGraph execution flow |
-| `preprocessing_pipeline.png` | Data preprocessing workflow |
-| `repository_structure.png` | Repository organization |
-| `system_design.png` | System components |
-| `workflow_graph.png` | Audit workflow graph |
-
----
-
-# Application Screenshots
-
-The `screenshots/` directory contains images captured from the running application.
-
-Current screenshots include:
-
-- Streamlit home page
-- Dataset upload
-- Data quality audit
-- Leakage analysis
-- Metric recommendation
-- Baseline model comparison
-- SHAP explainability
-- Feature importance
-- MLflow tracking
-- Audit report
-- FastAPI Swagger UI
-- GitHub Actions CI
-- Docker Hub image
-- Test suite results
-
-These screenshots are referenced throughout the README and documentation.
-
----
-
-# Demo Assets
-
-The `demo/` directory contains project demonstration resources.
+## Branding Assets
 
 | File | Purpose |
-|------|----------|
-| `demo_gif.gif` | Short application walkthrough |
-| `youtube_demo.png` | YouTube video preview |
-| `youtube_demo.txt` | YouTube demo URL |
+| --- | --- |
+| `assets/branding/repo_banner.png` | Main GitHub README banner |
+
+This image should appear at the top of `README.md`.
 
 Example:
 
-```text
-https://youtu.be/kFzNam74QBc
+```md
+<p align="center">
+  <img src="assets/branding/repo_banner.png" alt="Agentic ML Audit Copilot Banner">
+</p>
 ```
 
 ---
 
-# Image Guidelines
+## Architecture Assets
 
-Recommended formats:
+| File | Purpose |
+| --- | --- |
+| `assets/architecture/01_system_architecture.png` | Full system architecture |
+| `assets/architecture/02_hitl_workflow.png` | Human-in-the-loop review workflow |
+| `assets/architecture/03_fastapi_workflow.png` | FastAPI and HITL API workflow |
 
-- PNG for screenshots
-- GIF for demonstrations
-- SVG (optional) for diagrams
+These images explain the project without requiring the reader to inspect the code first.
 
-Recommended resolution:
+Recommended README usage:
 
-- 1920 × 1080
-- 2560 × 1440
+```md
+## System Architecture
 
-Recommendations:
+![System Architecture](assets/architecture/01_system_architecture.png)
+
+## Human-in-the-Loop Workflow
+
+![Human Review Workflow](assets/architecture/02_hitl_workflow.png)
+
+## FastAPI Workflow
+
+![FastAPI Workflow](assets/architecture/03_fastapi_workflow.png)
+```
+
+---
+
+## Screenshot Assets
+
+| File | Purpose |
+| --- | --- |
+| `assets/screenshots/01_streamlit_home.png` | Streamlit home and dataset upload view |
+| `assets/screenshots/02_human_review_gate.png` | Human Review Gate with risk cards and reviewer decisions |
+| `assets/screenshots/03_executive_dashboard.png` | Executive dashboard with KPIs and audit status |
+| `assets/screenshots/04_fastapi_docs.png` | FastAPI Swagger documentation |
+
+These screenshots should be captured from the running application.
+
+Recommended README usage:
+
+```md
+## Dashboard Preview
+
+![Streamlit Home](assets/screenshots/01_streamlit_home.png)
+
+![Human Review Gate](assets/screenshots/02_human_review_gate.png)
+
+![Executive Dashboard](assets/screenshots/03_executive_dashboard.png)
+
+![FastAPI Docs](assets/screenshots/04_fastapi_docs.png)
+```
+
+---
+
+## Demo Assets
+
+| File | Purpose |
+| --- | --- |
+| `assets/demo/demo_git.gif` | Short demo GIF for README |
+| `assets/demo/demo_script.md` | Short demo notes or YouTube walkthrough script |
+
+Example README usage:
+
+```md
+## Demo Preview
+
+<p align="center">
+  <img src="assets/demo/demo_git.gif" width="100%" alt="Project Demo">
+</p>
+```
+
+---
+
+## Screenshot Capture Checklist
+
+Before taking screenshots, run the app locally:
+
+```bash
+uv run streamlit run app/streamlit_app.py --server.port 8501
+```
+
+Run FastAPI in a second terminal:
+
+```bash
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Capture these views:
+
+1. Streamlit home page after app loads
+2. Human Review Gate tab after running an audit with risks
+3. Executive dashboard after audit results are available
+4. FastAPI Swagger UI at `http://127.0.0.1:8000/docs`
+
+---
+
+## Image Guidelines
+
+Recommended format:
+
+- PNG for banners, diagrams, and screenshots
+- GIF for short demo previews
+- Markdown for demo notes or scripts
+
+Recommended aspect ratios:
+
+| Asset Type | Recommended Ratio |
+| --- | --- |
+| Repository banner | 16:9 |
+| Architecture diagrams | 16:9 |
+| Dashboard screenshots | 16:9 or full browser width |
+| Demo GIF | 16:9 |
+
+Best practices:
 
 - Keep screenshots clean.
-- Crop unnecessary desktop elements.
-- Maintain consistent resolution.
-- Use clear labels where appropriate.
+- Avoid desktop clutter.
+- Avoid browser bookmarks or private information.
+- Use high-resolution captures.
+- Keep labels readable.
+- Prefer fewer strong visuals over many weak screenshots.
+- Replace old screenshots after major UI changes.
 
 ---
 
-# Naming Convention
+## Naming Convention
 
-Use lowercase filenames with underscores.
+Use numbered, lowercase, descriptive filenames.
 
-Examples:
+Good examples:
 
 ```text
-streamlit_home.png
-mlflow_tracking.png
-feature_importance.png
-deployment_architecture.png
+01_system_architecture.png
+02_hitl_workflow.png
+03_fastapi_workflow.png
+01_streamlit_home.png
+02_human_review_gate.png
+03_executive_dashboard.png
+04_fastapi_docs.png
+repo_banner.png
+demo_git.gif
+demo_script.md
 ```
 
-Avoid names such as:
+Avoid:
 
 ```text
 Screenshot (1).png
 final_latest.png
-image_new.png
+new_image.png
+copy2.png
+banner_final_final.png
 ```
 
 ---
 
-# Updating Assets
+## Updating Assets
 
-When replacing an image:
+When updating an asset:
 
-- Keep the same filename whenever possible.
-- Replace only if the new version improves quality.
-- Verify that all documentation still references the correct path.
-- Remove outdated or duplicate assets.
+1. Keep the same filename if the purpose is unchanged.
+2. Replace the old file instead of adding duplicates.
+3. Check README image paths after replacing.
+4. Check documentation image paths after replacing.
+5. Run `git status` to confirm only intended files changed.
+
+Useful command:
+
+```bash
+git status
+```
+
+Add assets:
+
+```bash
+git add assets/
+```
 
 ---
 
-# Best Practices
+## Paths Used in Documentation
 
-- Keep diagrams synchronized with the latest architecture.
-- Update screenshots after major UI changes.
-- Compress images without noticeable quality loss.
-- Store only repository-related assets.
-- Keep demo GIFs under reasonable file sizes.
+From `README.md`, use paths like:
+
+```text
+assets/branding/repo_banner.png
+assets/architecture/01_system_architecture.png
+assets/screenshots/03_executive_dashboard.png
+```
+
+From files inside `docs/`, use paths like:
+
+```text
+../assets/architecture/01_system_architecture.png
+../assets/architecture/02_hitl_workflow.png
+../assets/architecture/03_fastapi_workflow.png
+../assets/screenshots/04_fastapi_docs.png
+```
+
+This path difference is important because documentation files are inside the `docs/` folder.
 
 ---
 
-# Summary
+## What Not to Add
 
-The `assets/` directory centralizes all visual resources used throughout the project.
+Do not add too many screenshots.
 
-Maintaining a consistent naming convention and organized directory structure improves documentation quality, repository maintainability, and the overall presentation of **Agentic ML Audit Copilot**.
+Avoid adding:
+
+- Multiple similar dashboard screenshots
+- Outdated UI screenshots
+- Random generated images
+- Temporary images
+- Local system screenshots with private paths
+- Large files that slow down the repository
+
+The final asset set should stay small and strong.
+
+---
+
+## Final Asset Set
+
+The recommended final visual set is:
+
+```text
+repo_banner.png
+01_system_architecture.png
+02_hitl_workflow.png
+03_fastapi_workflow.png
+01_streamlit_home.png
+02_human_review_gate.png
+03_executive_dashboard.png
+04_fastapi_docs.png
+demo_git.gif
+```
+
+This is enough for a clean, recruiter-friendly GitHub repository.
+
+---
+
+## Summary
+
+The `assets/` directory should stay simple, organized, and consistent.
+
+A small set of high-quality visuals is better than many repeated or outdated images. Keep the folder clean, keep filenames stable, and make sure all README and documentation image paths match the actual files.

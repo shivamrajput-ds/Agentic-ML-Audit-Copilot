@@ -2,7 +2,9 @@
 
 ## Our Pledge
 
-We are committed to creating a respectful, welcoming, and professional environment for everyone who participates in **Agentic ML Audit Copilot**.
+We are committed to maintaining a respectful, welcoming, and professional environment for everyone who participates in **Agentic ML Audit Copilot**.
+
+This project welcomes learners, developers, data scientists, engineers, and contributors from different backgrounds and experience levels.
 
 All contributors, maintainers, and users are expected to communicate respectfully and constructively.
 
@@ -14,10 +16,11 @@ Examples of positive behavior include:
 
 - Being respectful of different viewpoints and experiences
 - Giving constructive feedback
-- Helping others learn
+- Helping others learn and improve
 - Communicating clearly and professionally
 - Focusing on project improvement and technical discussion
-- Being open to suggestions and collaboration
+- Being open to suggestions, questions, and collaboration
+- Assuming good intent when reviewing code, issues, or documentation
 
 ---
 
@@ -25,13 +28,14 @@ Examples of positive behavior include:
 
 Examples of unacceptable behavior include:
 
-- Harassment
-- Insults or personal attacks
-- Discriminatory language
+- Harassment or intimidation
+- Insults, personal attacks, or hostile comments
+- Discriminatory language or behavior
 - Public or private abuse
 - Sharing private information without permission
 - Disruptive or disrespectful behavior
-- Repeated off-topic or hostile comments
+- Repeated off-topic comments that interrupt project work
+- Unprofessional conduct in issues, pull requests, discussions, or reviews
 
 ---
 
@@ -39,55 +43,63 @@ Examples of unacceptable behavior include:
 
 Project maintainers are responsible for encouraging a positive and productive environment.
 
-Maintainers may remove comments, issues, pull requests, or contributions that violate this Code of Conduct.
+Maintainers may take action when behavior does not follow this Code of Conduct. This may include:
 
-Maintainers may also temporarily or permanently restrict participation when necessary.
+- Editing or removing comments
+- Closing issues or pull requests
+- Requesting changes in communication style
+- Temporarily or permanently restricting participation
+
+Maintainers should handle reports fairly and consistently.
 
 ---
 
 ## Reporting
 
-If you notice unacceptable behavior, please report it to the project maintainer.
+If you notice behavior that violates this Code of Conduct, please report it to the project maintainer.
 
 A useful report should include:
 
 - What happened
 - Where it happened
-- Any relevant screenshots, links, or context
+- Who was involved, if relevant
+- Any screenshots, links, or additional context
 
-Reports will be reviewed respectfully and handled as fairly as possible.
+Reports will be reviewed respectfully. The maintainer will take appropriate action based on the situation.
 
 ---
 
 ## Scope
 
-This Code of Conduct applies to:
+This Code of Conduct applies to all project-related spaces, including:
 
 - GitHub issues
 - Pull requests
 - Discussions
-- Documentation contributions
 - Code reviews
-- Any project-related communication
+- Documentation contributions
+- Project-related communication
+
+It also applies when someone is representing the project in public spaces.
 
 ---
 
 ## Enforcement
 
-Possible actions include:
+Possible actions may include:
 
-- Warning
+- A private or public warning
 - Comment removal
 - Issue or pull request closure
 - Temporary restriction from participation
 - Permanent restriction from participation
 
-The response will depend on the severity and context of the situation.
+The response will depend on the severity, context, and impact of the behavior.
 
 ---
 
 ## Summary
 
-This project welcomes learners, developers, data scientists, and engineers.
+The goal of this project is to build and improve **Agentic ML Audit Copilot** in a respectful and helpful environment.
 
-The goal is to maintain a respectful and helpful space for improving **Agentic ML Audit Copilot**.
+Professional communication helps the project grow better, faster, and more reliably.

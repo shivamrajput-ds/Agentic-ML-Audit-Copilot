@@ -4,25 +4,29 @@
 
 This guide explains how to install, configure, and use **Agentic ML Audit Copilot**.
 
-The project can be executed using:
+The project can be used through:
 
-- Streamlit Dashboard
+- Streamlit dashboard
 - FastAPI REST API
 - Docker
-- MLflow
+- MLflow UI
 
-The audit workflow is deterministic-first. Python performs all ML computation, while the LLM is used only for explanations and report generation.
+The workflow follows a deterministic-first approach:
+
+- Python performs ML computation and audit checks.
+- The LLM is used only for explanations, audit Q&A, and report generation.
+- Risky datasets can pause at the Human Review Gate before modeling continues.
 
 ---
 
-# System Requirements
+## System Requirements
 
 Recommended:
 
 - Python 3.11 or 3.12
 - Git
-- uv (recommended)
-- Docker Desktop (optional)
+- uv
+- Docker Desktop, optional
 
 Supported operating systems:
 
@@ -32,19 +36,18 @@ Supported operating systems:
 
 ---
 
-# Clone the Repository
+## Clone the Repository
 
 ```bash
 git clone https://github.com/shivamrajput-ds/Agentic-ML-Audit-Copilot.git
-
 cd Agentic-ML-Audit-Copilot
 ```
 
 ---
 
-# Create Virtual Environment
+## Create Virtual Environment
 
-## Using uv (Recommended)
+## Using uv
 
 Create the virtual environment:
 
@@ -70,15 +73,20 @@ Install dependencies:
 
 ```bash
 uv pip install -r requirements.txt
+uv pip install -e .
 ```
 
 ---
 
-## Using Python
+## Using Python venv
+
+Create the virtual environment:
 
 ```bash
 python -m venv .venv
 ```
+
+Activate it.
 
 Windows:
 
@@ -96,53 +104,74 @@ Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ---
 
-# Configure Environment Variables
+## Configure Environment Variables
 
 Create a `.env` file in the project root.
 
 Example:
 
 ```text
-GROQ_API_KEY=YOUR_GROQ_API_KEY
+GROQ_API_KEY=your_groq_api_key
 ```
 
-The project also includes:
+The repository includes:
 
 ```text
 .env.example
 ```
 
+Use `.env.example` only as a reference. Do not place real secrets inside it.
+
+If you want to run deterministic audit checks without LLM usage, disable the LLM if supported by your configuration:
+
+Linux/macOS:
+
+```bash
+export LLM_ENABLED=false
+```
+
+Windows PowerShell:
+
+```powershell
+$env:LLM_ENABLED="false"
+```
+
 ---
 
-# Project Configuration
+## Project Configuration
 
-Most application settings are controlled through:
+Most application behavior is controlled through:
 
 ```text
 config.yaml
 ```
 
-Examples include:
+Common configurable areas:
 
 - Logging
 - Upload limits
+- Random seed
 - MLflow
 - Explainability
-- Random seed
-- Model defaults
+- LLM settings
+- Modeling defaults
 - Metric defaults
-- Preprocessing
+- Preprocessing behavior
+- Report output paths
 
 ---
 
-# Run the Streamlit Dashboard
+## Run the Streamlit Dashboard
+
+Start the dashboard:
 
 ```bash
-uv run streamlit run app/streamlit_app.py
+uv run streamlit run app/streamlit_app.py --server.port 8501
 ```
 
 Open:
@@ -153,27 +182,31 @@ http://localhost:8501
 
 ---
 
-# Run FastAPI
+## Run FastAPI
+
+Use a second terminal:
 
 ```bash
-uv run uvicorn app.api:app --reload
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Swagger UI:
+Open Swagger UI:
 
 ```text
-http://localhost:8000/docs
+http://127.0.0.1:8000/docs
 ```
 
 Health endpoint:
 
 ```text
-http://localhost:8000/health
+http://127.0.0.1:8000/health
 ```
 
 ---
 
-# Run MLflow
+## Run MLflow UI
+
+Start MLflow:
 
 ```bash
 uv run mlflow ui
@@ -185,330 +218,575 @@ Open:
 http://localhost:5000
 ```
 
-MLflow records:
+MLflow may track:
 
+- Problem type
+- Baseline model names
 - Parameters
 - Metrics
-- Model artifacts
 - Best baseline model
+- Runtime metadata
 
 ---
 
-# Run with Docker
+## Run with Docker
 
-Build:
-
-```bash
-docker build -t agentic-ml-audit-copilot .
-```
-
-Run:
-
-```bash
-docker run --rm \
--p 8000:8000 \
--p 8501:8501 \
--e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
-agentic-ml-audit-copilot
-```
-
-Or pull directly from Docker Hub:
+## Pull from Docker Hub
 
 ```bash
 docker pull shivamrajput130/agentic-ml-audit-copilot:latest
 ```
 
+Run:
+
 ```bash
 docker run --rm \
--p 8000:8000 \
--p 8501:8501 \
--e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
-shivamrajput130/agentic-ml-audit-copilot:latest
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  shivamrajput130/agentic-ml-audit-copilot:latest
+```
+
+Open:
+
+```text
+Streamlit: http://localhost:8501
+FastAPI:   http://localhost:8000/docs
+Health:    http://localhost:8000/health
 ```
 
 ---
 
-# Audit Workflow
+## Build Locally
 
-The application executes the following deterministic workflow:
-
+```bash
+docker build -t agentic-ml-audit-copilot .
 ```
-Upload CSV
 
-↓
+Run local image:
 
-Dataset Profiling
-
-↓
-
-Problem Type Detection
-
-↓
-
-Data Quality Audit
-
-↓
-
-Possible Leakage Detection
-
-↓
-
-Metric Recommendation
-
-↓
-
-Class Imbalance Detection
-
-↓
-
-Preprocessing Pipeline
-
-↓
-
-Baseline Models
-
-↓
-
-MLflow Tracking
-
-↓
-
-Explainability
-
-↓
-
-LLM Report Generation
+```bash
+docker run --rm \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  agentic-ml-audit-copilot
 ```
 
 ---
 
-# Using the Dashboard
+## Main Audit Workflow
 
-## Step 1
-
-Launch Streamlit.
-
-## Step 2
-
-Upload a CSV dataset.
-
-Example:
-
+```text
+User
+  |
+  v
+Streamlit UI / FastAPI API
+  |
+  v
+CSV Upload + Target Selection
+  |
+  v
+LangGraph Audit Workflow
+  |
+  v
+Dataset Profiler
+  |
+  v
+Problem Type Detector
+  |
+  v
+Parallel Audit Layer
+  |-- Data Quality Audit
+  |-- Leakage Detection
+  |-- Class Imbalance Detection
+  |
+  v
+Risk Aggregator
+  |
+  v
+Decision Router
+  |
+  v
+Human Review Gate
+  |-- Stop / Fix Dataset
+  |-- Human Approved
+          |
+          v
+      Metric Recommender
+          |
+          v
+      Preprocessing Pipeline
+          |
+          v
+      Baseline Models
+          |
+          v
+      MLflow Tracking
+          |
+          v
+      Explainability / SHAP
+          |
+          v
+      LLM Audit Report
+          |
+          v
+      Audit Q&A
+          |
+          v
+      Final Dashboard + JSON Report
 ```
-Housing.csv
+
+---
+
+## Using the Streamlit Dashboard
+
+## Step 1: Start the App
+
+```bash
+uv run streamlit run app/streamlit_app.py --server.port 8501
 ```
 
-## Step 3
+Open:
 
-Choose the target column.
+```text
+http://localhost:8501
+```
+
+---
+
+## Step 2: Upload Dataset
+
+Upload a CSV file.
+
+Example datasets:
+
+```text
+student_mark.csv
+housing.csv
+churn.csv
+```
+
+---
+
+## Step 3: Select Target Column
+
+Choose the column that the model would predict.
 
 Examples:
 
-```
-Price
-
-Target
-
+```text
+Grade
+price
 Churn
-
-Label
+target
+label
 ```
-
-## Step 4
-
-Click:
-
-```
-Run Audit
-```
-
-The workflow executes automatically.
 
 ---
 
-# Audit Results
+## Step 4: Run Audit
 
-The dashboard provides:
+Click the audit run button in the dashboard.
 
+The system will run deterministic checks and show workflow status.
+
+---
+
+## Step 5: Review Results
+
+The dashboard may show:
+
+- Executive summary
 - Dataset profile
-- Missing value analysis
-- Duplicate detection
-- Data quality score
+- Data quality findings
 - Possible leakage risks
-- Class imbalance analysis
+- Class imbalance results
+- Risk summary
+- Workflow decision
+- Human Review Gate
 - Metric recommendation
 - Baseline model comparison
-- Feature importance
-- SHAP explainability
-- MLflow tracking summary
-- Human review checklist
-- AI-generated audit report
+- MLflow status
+- Explainability output
+- LLM audit report
+- Audit Q&A
+- JSON and Markdown downloads
 
 ---
 
-# Download Reports
+## Human Review Gate
 
-Reports are generated automatically.
+The Human Review Gate appears when the workflow finds risks that need human judgment.
 
-Supported formats:
+Examples:
+
+- Possible target leakage
+- Identifier-like columns
+- Severe class imbalance
+- High missing values
+- Ambiguous problem type
+
+Reviewer decision options:
+
+- Accept risk and continue
+- Accept flag and fix later
+- Mark false positive
+- Needs data fix
+- Reject modeling
+
+Final human decision:
+
+```text
+approved
+rejected
+needs_fix
+```
+
+If approved, the workflow continues to:
+
+```text
+Metric Recommendation
+Preprocessing
+Baseline Models
+MLflow
+SHAP
+Final Report
+```
+
+If rejected or marked as needing a data fix, the workflow stops so the dataset can be fixed first.
+
+Important:
+
+The system reports possible leakage risks only. It does not automatically confirm leakage.
+
+---
+
+## Using the FastAPI Workflow
+
+## Simple Audit
+
+```bash
+curl -X POST "http://127.0.0.1:8000/audit" \
+  -F "file=@data/sample/student_mark.csv" \
+  -F "target_column=Grade"
+```
+
+---
+
+## Lightweight Summary
+
+```bash
+curl -X POST "http://127.0.0.1:8000/audit/summary" \
+  -F "file=@data/sample/student_mark.csv" \
+  -F "target_column=Grade"
+```
+
+---
+
+## Human Review API Flow
+
+Recommended flow for explicit human approval:
+
+```text
+1. POST /audit/review-gate
+2. Inspect human_review.review_items
+3. GET /human-review/decision-template
+4. Fill reviewer decision JSON
+5. POST /audit/after-human-approval
+6. Continue to baseline models, MLflow, SHAP, and final report
+```
+
+### 1. Run Until Human Review Gate
+
+```bash
+curl -X POST "http://127.0.0.1:8000/audit/review-gate" \
+  -F "file=@data/sample/student_mark.csv" \
+  -F "target_column=Grade"
+```
+
+### 2. Get Decision Template
+
+```bash
+curl -X GET "http://127.0.0.1:8000/human-review/decision-template"
+```
+
+### 3. Continue After Approval
+
+```bash
+curl -X POST "http://127.0.0.1:8000/audit/after-human-approval" \
+  -F "file=@data/sample/student_mark.csv" \
+  -F "target_column=Grade" \
+  -F 'human_review_decision_json={
+    "final_decision": "approved",
+    "reviewer": "reviewer-name",
+    "notes": "Reviewed risks and approved baseline modeling.",
+    "decisions": [
+      {
+        "risk_id": "risk_001",
+        "decision": "accept_risk_and_continue",
+        "comment": "Accepted for baseline run."
+      }
+    ]
+  }'
+```
+
+---
+
+## Download Reports
+
+Reports may be available in:
 
 - Markdown
 - JSON
 
-Reports are stored in:
+Generated files may be stored in:
 
 ```text
 reports/
 ```
 
----
-
-# Human Review
-
-The system highlights findings requiring manual review.
-
-Examples:
-
-- Possible target leakage
-- Identifier columns
-- Severe class imbalance
-- High missing values
-
-The application **never confirms leakage automatically**.
-
-Human review is always recommended.
+Dashboard downloads may also be available after audit completion.
 
 ---
 
-# Running Tests
+## Run Tests
 
-Execute the complete test suite:
+Run the full test suite:
 
 ```bash
-uv run pytest
+uv run pytest -q
 ```
 
-Expected output:
+Run one test file:
 
-```text
-96 passed
+```bash
+uv run pytest tests/test_data_quality.py -q
+```
+
+Run one specific test:
+
+```bash
+uv run pytest tests/test_data_quality.py::test_detects_missing_values -q
 ```
 
 ---
 
-# Linting
+## Linting and Formatting
 
-Check formatting:
-
-```bash
-uv run ruff format --check .
-```
-
-Run Ruff:
+Run Ruff lint:
 
 ```bash
 uv run ruff check .
 ```
 
-Auto-format:
+Fix safe lint issues:
+
+```bash
+uv run ruff check . --fix --unsafe-fixes
+```
+
+Format code:
 
 ```bash
 uv run ruff format .
 ```
 
+Recommended before commit:
+
+```bash
+uv run ruff check . --fix --unsafe-fixes
+uv run ruff format .
+uv run pytest -q
+```
+
 ---
 
-# Troubleshooting
+## Troubleshooting
 
 ## No module named `src`
 
-Run:
+Install the project in editable mode:
 
 ```bash
-PYTHONPATH=. uv run streamlit run app/streamlit_app.py
+uv pip install -e .
+```
+
+Then run again:
+
+```bash
+uv run streamlit run app/streamlit_app.py --server.port 8501
+```
+
+Alternative:
+
+```bash
+PYTHONPATH=. uv run streamlit run app/streamlit_app.py --server.port 8501
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH="."
+uv run streamlit run app/streamlit_app.py --server.port 8501
 ```
 
 ---
 
 ## Invalid Target Column
 
-Verify that the selected target column exists in the uploaded CSV.
+Check that:
+
+- The target column exists in the uploaded CSV
+- The name matches exactly
+- There are no extra spaces in the column name
 
 ---
 
 ## Missing GROQ API Key
 
-Create:
+Create a `.env` file:
 
 ```text
-.env
+GROQ_API_KEY=your_groq_api_key
 ```
 
-Add:
+Or set it in the terminal.
 
-```text
-GROQ_API_KEY=YOUR_GROQ_API_KEY
+Linux/macOS:
+
+```bash
+export GROQ_API_KEY="your_groq_api_key"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:GROQ_API_KEY="your_groq_api_key"
 ```
 
 ---
 
 ## Docker Port Already in Use
 
-Use different host ports.
-
-Example:
+Use different host ports:
 
 ```bash
 docker run --rm \
--p 8001:8000 \
--p 8502:8501 \
--e GROQ_API_KEY="YOUR_GROQ_API_KEY" \
-agentic-ml-audit-copilot
+  -p 8502:8501 \
+  -p 8001:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  agentic-ml-audit-copilot
 ```
-
----
-
-## Health Check
 
 Open:
 
 ```text
-http://localhost:8000/health
+Streamlit: http://localhost:8502
+FastAPI:   http://localhost:8001/docs
 ```
 
 ---
 
-# Best Practices
+## FastAPI Port Already in Use
 
-- Review all possible leakage warnings before training models.
-- Verify the selected target column.
+Use another port:
+
+```bash
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8001
+```
+
+Open:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+---
+
+## MLflow UI Does Not Open
+
+Try specifying the backend store path:
+
+```bash
+uv run mlflow ui --backend-store-uri mlruns --port 5000
+```
+
+Open:
+
+```text
+http://localhost:5000
+```
+
+---
+
+## SHAP Takes Too Long
+
+SHAP can be slower on larger datasets.
+
+Possible actions:
+
+- Use a smaller sample
+- Disable SHAP if supported by config
+- Run baseline audit first
+- Avoid very large datasets in local demo mode
+
+---
+
+## Best Practices
+
+- Verify the target column before running the audit.
+- Review possible leakage warnings carefully.
+- Treat leakage findings as possible risks, not confirmed facts.
 - Use representative datasets.
-- Inspect baseline model performance before optimization.
-- Review SHAP explanations.
-- Keep dependencies updated.
-- Never commit API keys.
+- Inspect class imbalance before trusting accuracy.
+- Review baseline metrics before advanced optimization.
+- Review SHAP and feature importance outputs.
+- Use MLflow to compare baseline runs.
+- Never commit API keys or `.env` files.
+- Keep screenshots and reports free from private information.
 
 ---
 
-# Design Philosophy
+## Common Local Workflow
 
-Agentic ML Audit Copilot follows a deterministic-first approach.
+For development:
 
-- Python performs all ML computation.
-- The LLM is used only for explanations.
-- Possible leakage is never treated as confirmed.
-- Human review is required before making modeling decisions.
+```bash
+uv pip install -r requirements.txt
+uv pip install -e .
+uv run ruff check . --fix --unsafe-fixes
+uv run ruff format .
+uv run pytest -q
+uv run streamlit run app/streamlit_app.py --server.port 8501
+```
+
+In a second terminal:
+
+```bash
+uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Optional MLflow:
+
+```bash
+uv run mlflow ui
+```
 
 ---
 
-# Summary
+## Summary
 
-Agentic ML Audit Copilot simplifies dataset auditing before model development.
+Agentic ML Audit Copilot helps users audit tabular datasets before baseline model training.
 
-Users only need to:
+A typical user flow is:
 
-1. Upload a dataset.
+1. Upload a CSV dataset.
 2. Select the target column.
-3. Run the audit.
+3. Run deterministic audit checks.
+4. Review risks at the Human Review Gate if needed.
+5. Approve or stop the workflow.
+6. Continue to metrics, baselines, MLflow, SHAP, and final report.
+7. Download Markdown or JSON audit output.
 
-The platform performs deterministic analysis, generates explainability insights, tracks experiments with MLflow, and produces a structured audit report for informed human decision-making.
+The system is designed to support informed human decision-making, not blind automation.

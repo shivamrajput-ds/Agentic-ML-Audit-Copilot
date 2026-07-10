@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 from typing import Any, cast
 
 import numpy as np
@@ -40,6 +41,8 @@ LINEAR_MODEL_KEYWORDS = [
 ]
 
 TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+FALSE_VALUES = {"false", "0", "no", "n", "off"}
+MIN_CONFIG_VALUE = 1
 
 
 def as_bool(value: Any) -> bool:
@@ -48,40 +51,88 @@ def as_bool(value: Any) -> bool:
         return value
 
     if isinstance(value, str):
-        return value.strip().lower() in TRUE_VALUES
+        normalized = value.strip().lower()
+        if normalized in TRUE_VALUES:
+            return True
+        if normalized in FALSE_VALUES:
+            return False
 
     return bool(value)
 
 
-def get_int_config(path: str, default: int) -> int:
-    """Read integer config values with safe fallback."""
+def get_int_config(path: str, default: int, minimum: int = MIN_CONFIG_VALUE) -> int:
+    """Read integer config values with safe fallback and lower bound."""
     try:
-        return int(get_config_value(path, default))
+        value = int(get_config_value(path, default))
+    except (KeyError, TypeError, ValueError, RuntimeError):
+        logger.warning("Invalid integer config for %s. Using default=%s", path, default)
+        value = int(default)
+
+    return max(minimum, value)
+
+
+def json_safe_value(value: Any) -> Any:
+    """Convert pandas/numpy scalars and invalid floats into JSON-safe values."""
+    if value is None:
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+
+    if isinstance(value, pd.Timedelta):
+        return str(value)
+
+    if isinstance(value, np.generic):
+        value = value.item()
+
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+
+    if isinstance(value, str | int | bool):
+        return value
+
+    if isinstance(value, list | tuple):
+        return [json_safe_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {str(key): json_safe_value(item) for key, item in value.items()}
+
+    try:
+        if pd.isna(value):
+            return None
     except (TypeError, ValueError):
-        return default
+        pass
+
+    return str(value)
 
 
 def records_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
     """Convert pandas records to JSON-safe list[dict[str, Any]]."""
     raw_records = df.to_dict(orient="records")
-    return [{str(key): value for key, value in row.items()} for row in raw_records]
+    return [
+        {str(key): json_safe_value(value) for key, value in row.items()}
+        for row in raw_records
+    ]
 
 
 def get_explainability_config() -> dict[str, Any]:
     """Read explainability config from config.yaml."""
+    max_samples = get_int_config("explainability.max_samples", 200)
+    top_n_features = get_int_config("explainability.top_n_features", 20)
+    plot_max_features = get_int_config("explainability.plot_max_features", 20)
+
     return {
         "enabled": as_bool(get_config_value("explainability.enabled", False)),
         "run_shap": as_bool(get_config_value("explainability.run_shap", False)),
-        "max_samples": get_int_config("explainability.max_samples", 200),
-        "top_n_features": get_int_config("explainability.top_n_features", 20),
-        "random_state": get_int_config("random_seed", 42),
+        "max_samples": max_samples,
+        "top_n_features": top_n_features,
+        "random_state": get_int_config("random_seed", 42, minimum=0),
         "generate_plots": as_bool(
             get_config_value("explainability.generate_plots", True),
         ),
-        "plot_max_features": get_int_config(
-            "explainability.plot_max_features",
-            20,
-        ),
+        "plot_max_features": max(1, min(plot_max_features, top_n_features)),
     }
 
 
@@ -90,7 +141,7 @@ def validate_inputs(
     sample_features: pd.DataFrame | None,
 ) -> None:
     """Validate explainability inputs."""
-    if not baseline_results:
+    if not isinstance(baseline_results, dict) or not baseline_results:
         raise ExplainabilityError("Baseline results are required for explainability.")
 
     best_model = baseline_results.get("best_model", {})
@@ -110,8 +161,10 @@ def validate_inputs(
         )
 
     if best_model_name not in trained_models:
+        available_models = sorted(str(name) for name in trained_models)
         raise ExplainabilityError(
-            f"Best model object not found for model: {best_model_name}",
+            f"Best model object not found for model: {best_model_name}. "
+            f"Available models: {available_models}",
         )
 
     if sample_features is not None and not isinstance(sample_features, pd.DataFrame):
@@ -133,16 +186,21 @@ def get_best_model_pipeline(baseline_results: dict[str, Any]) -> Any:
     return trained_models.get(best_model_name)
 
 
-def get_pipeline_parts(model_pipeline: Any) -> tuple[Any | None, Any]:
+def get_pipeline_parts(model_pipeline: Any) -> tuple[Any | None, Any | None]:
     """
-    Extract preprocessor and estimator from a sklearn Pipeline.
+    Extract preprocessor and estimator from a fitted sklearn Pipeline.
 
     Expected pipeline:
     Pipeline([
         ("preprocessor", ...),
-        ("model", ...)
+        ("model", ...),
     ])
+
+    If a bare fitted estimator is provided, the estimator is returned directly.
     """
+    if model_pipeline is None:
+        return None, None
+
     if hasattr(model_pipeline, "named_steps"):
         preprocessor = model_pipeline.named_steps.get("preprocessor")
         estimator = model_pipeline.named_steps.get("model")
@@ -198,7 +256,13 @@ def transform_features(
     if preprocessor is None:
         return features
 
-    return preprocessor.transform(features)
+    try:
+        return preprocessor.transform(features)
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise ExplainabilityError(
+            "Failed to transform sample features with the fitted preprocessor.",
+            error_detail=str(error),
+        ) from error
 
 
 def get_feature_names(
@@ -220,20 +284,59 @@ def get_feature_names(
     shape = getattr(transformed_features, "shape", None)
 
     if shape is not None and len(shape) == 2:
-        return [f"feature_{idx}" for idx in range(shape[1])]
+        return [f"feature_{idx}" for idx in range(int(shape[1]))]
 
     return [str(column) for column in raw_features.columns]
 
 
 def to_numpy_array(values: Any) -> np.ndarray:
-    """Convert dense/sparse/dataframe values to numpy array."""
+    """Convert dense/sparse/dataframe values to a numeric numpy array when possible."""
     if hasattr(values, "toarray"):
-        return np.asarray(values.toarray())
+        array = np.asarray(values.toarray())
+    elif isinstance(values, pd.DataFrame):
+        array = values.to_numpy()
+    else:
+        array = np.asarray(values)
 
-    if isinstance(values, pd.DataFrame):
-        return values.to_numpy()
+    if array.dtype == object:
+        try:
+            array = array.astype(float)
+        except (TypeError, ValueError):
+            return array
 
-    return np.asarray(values)
+    return array
+
+
+def ensure_2d_array(values: np.ndarray) -> np.ndarray:
+    """Ensure values are represented as a 2D numpy array."""
+    if values.ndim == 1:
+        return values.reshape(-1, 1)
+    return values
+
+
+def align_feature_names_and_arrays(
+    feature_names: list[str],
+    *arrays: np.ndarray,
+) -> tuple[list[str], list[np.ndarray]]:
+    """Align feature names and arrays to the smallest shared feature dimension."""
+    feature_count = len(feature_names)
+
+    for array in arrays:
+        if array.ndim >= 2:
+            feature_count = min(feature_count, int(array.shape[1]))
+        elif array.ndim == 1:
+            feature_count = min(feature_count, int(array.shape[0]))
+
+    aligned_arrays: list[np.ndarray] = []
+    for array in arrays:
+        if array.ndim >= 2:
+            aligned_arrays.append(array[:, :feature_count])
+        elif array.ndim == 1:
+            aligned_arrays.append(array[:feature_count])
+        else:
+            aligned_arrays.append(array)
+
+    return feature_names[:feature_count], aligned_arrays
 
 
 def build_importance_dataframe(
@@ -248,10 +351,11 @@ def build_importance_dataframe(
     if importances.ndim > 1:
         importances = np.mean(np.abs(importances), axis=0)
 
-    if len(feature_names) != len(importances):
-        min_len = min(len(feature_names), len(importances))
-        feature_names = feature_names[:min_len]
-        importances = importances[:min_len]
+    if importances.ndim == 0:
+        importances = importances.reshape(1)
+
+    feature_names, aligned = align_feature_names_and_arrays(feature_names, importances)
+    importances = aligned[0]
 
     importance_df = pd.DataFrame(
         {
@@ -260,6 +364,8 @@ def build_importance_dataframe(
         },
     )
 
+    importance_df = importance_df.replace([np.inf, -np.inf], np.nan)
+    importance_df[importance_column] = importance_df[importance_column].fillna(0.0)
     importance_df["absolute_importance"] = importance_df[importance_column].abs()
     importance_df = importance_df.sort_values("absolute_importance", ascending=False)
 
@@ -377,12 +483,13 @@ def import_shap_module() -> Any | None:
 
 def normalize_shap_values(shap_values: Any) -> np.ndarray:
     """
-    Normalize SHAP values into 2D array.
+    Normalize SHAP values into a 2D array.
 
     Supports:
     - shap.Explanation
     - list returned by older SHAP APIs
     - numpy arrays
+    - 3D multi-class arrays
     """
     values = shap_values
 
@@ -391,6 +498,7 @@ def normalize_shap_values(shap_values: Any) -> np.ndarray:
 
     if isinstance(values, list):
         arrays = [np.asarray(item) for item in values]
+        arrays = [array for array in arrays if array.size > 0]
         if not arrays:
             return np.asarray([])
         values = np.mean([np.abs(array) for array in arrays], axis=0)
@@ -398,7 +506,13 @@ def normalize_shap_values(shap_values: Any) -> np.ndarray:
     values_array = np.asarray(values)
 
     if values_array.ndim == 3:
-        values_array = np.mean(np.abs(values_array), axis=2)
+        # Common shapes:
+        # (samples, features, classes) for shap.Explanation
+        # (classes, samples, features) for some older APIs
+        if values_array.shape[1] <= values_array.shape[2]:
+            values_array = np.mean(np.abs(values_array), axis=2)
+        else:
+            values_array = np.mean(np.abs(values_array), axis=0)
 
     if values_array.ndim == 2:
         return values_array
@@ -409,33 +523,133 @@ def normalize_shap_values(shap_values: Any) -> np.ndarray:
     return np.asarray([])
 
 
-def get_base_value(shap_values: Any) -> Any:
-    """Extract SHAP expected/base value in JSON-safe form."""
-    try:
-        if hasattr(shap_values, "base_values"):
-            base_values = np.asarray(shap_values.base_values)
+def normalize_shap_values_for_matrix(
+    shap_values: Any,
+    expected_rows: int,
+    expected_features: int,
+) -> np.ndarray:
+    """Normalize SHAP output into ``(rows, features)`` for plotting/summaries.
 
-            if base_values.ndim == 0:
-                return float(base_values)
+    SHAP returns different shapes depending on estimator/version/problem type:
+    - binary/regression: ``(rows, features)``
+    - old multiclass API: list[class] of ``(rows, features)``
+    - newer multiclass API: 3D arrays such as ``(rows, features, classes)``
+      or ``(classes, rows, features)``.
 
-            if base_values.size == 1:
-                return float(base_values.ravel()[0])
+    This helper uses the known transformed feature matrix shape to avoid
+    accidentally treating class count as row count. Multiclass values are
+    reduced with mean absolute SHAP across classes, which is stable for global
+    summaries and beeswarm/bar plots.
+    """
 
-            return [float(value) for value in base_values.ravel()[:10]]
+    def _as_2d_candidate(array: np.ndarray) -> np.ndarray | None:
+        array = np.asarray(array)
 
-        if hasattr(shap_values, "expected_value"):
-            value = shap_values.expected_value
+        if array.size == 0:
+            return None
 
-            if isinstance(value, (list, tuple, np.ndarray)):
-                array = np.asarray(value).ravel()
-                return [float(item) for item in array[:10]]
+        if array.ndim == 1:
+            if expected_features == 1 and array.shape[0] == expected_rows:
+                return array.reshape(expected_rows, 1)
+            if expected_rows == 1 and array.shape[0] == expected_features:
+                return array.reshape(1, expected_features)
+            return None
 
-            return float(value)
+        if array.ndim == 2:
+            if array.shape == (expected_rows, expected_features):
+                return array
+            if array.shape == (expected_features, expected_rows):
+                return array.T
+            return None
 
-    except (TypeError, ValueError, AttributeError):
+        if array.ndim != 3:
+            return None
+
+        # Try every axis as the class/output axis. The remaining two axes must
+        # match rows/features, either directly or transposed.
+        for class_axis in range(3):
+            reduced = np.mean(np.abs(array), axis=class_axis)
+            if reduced.shape == (expected_rows, expected_features):
+                return reduced
+            if reduced.shape == (expected_features, expected_rows):
+                return reduced.T
+
         return None
 
+    values = shap_values.values if hasattr(shap_values, "values") else shap_values
+
+    if isinstance(values, list):
+        candidates: list[np.ndarray] = []
+        for item in values:
+            candidate = _as_2d_candidate(np.asarray(item))
+            if candidate is not None:
+                candidates.append(candidate)
+
+        if candidates:
+            return np.mean([np.abs(candidate) for candidate in candidates], axis=0)
+
+    direct_candidate = _as_2d_candidate(np.asarray(values))
+    if direct_candidate is not None:
+        return direct_candidate
+
+    # Backward-compatible fallback for unusual SHAP objects. The caller will
+    # validate rows/columns again before plotting.
+    return ensure_2d_array(normalize_shap_values(shap_values))
+
+
+def align_rows_and_columns(
+    shap_values_array: np.ndarray,
+    feature_values_array: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Align SHAP matrix and feature matrix by row and column count."""
+    shap_values_array = ensure_2d_array(shap_values_array)
+    feature_values_array = ensure_2d_array(feature_values_array)
+
+    if shap_values_array.size == 0 or feature_values_array.size == 0:
+        return shap_values_array, feature_values_array
+
+    min_rows = min(shap_values_array.shape[0], feature_values_array.shape[0])
+    min_cols = min(shap_values_array.shape[1], feature_values_array.shape[1])
+
+    return (
+        shap_values_array[:min_rows, :min_cols],
+        feature_values_array[:min_rows, :min_cols],
+    )
+
+
+def get_explainer_base_value(explainer: Any, shap_values: Any) -> Any:
+    """Extract SHAP expected/base value in JSON-safe form."""
+    candidates = []
+
+    if hasattr(shap_values, "base_values"):
+        candidates.append(shap_values.base_values)
+
+    if hasattr(explainer, "expected_value"):
+        candidates.append(explainer.expected_value)
+
+    if hasattr(shap_values, "expected_value"):
+        candidates.append(shap_values.expected_value)
+
+    for candidate in candidates:
+        try:
+            array = np.asarray(candidate)
+
+            if array.ndim == 0:
+                return json_safe_value(float(array))
+
+            if array.size == 1:
+                return json_safe_value(float(array.ravel()[0]))
+
+            return json_safe_value([float(value) for value in array.ravel()[:10]])
+        except (TypeError, ValueError, AttributeError):
+            continue
+
     return None
+
+
+def get_base_value(shap_values: Any) -> Any:
+    """Backward-compatible base-value extractor."""
+    return get_explainer_base_value(explainer=None, shap_values=shap_values)
 
 
 def summarize_shap_values(
@@ -446,6 +660,9 @@ def summarize_shap_values(
     top_n: int,
 ) -> dict[str, Any]:
     """Build global and local SHAP summaries."""
+    shap_values_array = ensure_2d_array(shap_values_array)
+    feature_values_array = ensure_2d_array(feature_values_array)
+
     if shap_values_array.size == 0:
         return {
             "global_importance": [],
@@ -454,11 +671,13 @@ def summarize_shap_values(
             "local_explanations": [],
         }
 
-    if len(feature_names) != shap_values_array.shape[1]:
-        min_len = min(len(feature_names), shap_values_array.shape[1])
-        feature_names = feature_names[:min_len]
-        shap_values_array = shap_values_array[:, :min_len]
-        feature_values_array = feature_values_array[:, :min_len]
+    feature_names, aligned = align_feature_names_and_arrays(
+        feature_names,
+        shap_values_array,
+        feature_values_array,
+    )
+    shap_values_array = aligned[0]
+    feature_values_array = aligned[1]
 
     mean_abs = np.mean(np.abs(shap_values_array), axis=0)
     mean_signed = np.mean(shap_values_array, axis=0)
@@ -470,6 +689,7 @@ def summarize_shap_values(
             "mean_shap": mean_signed.astype(float),
         },
     )
+    global_df = global_df.replace([np.inf, -np.inf], np.nan).fillna(0.0)
     global_df["direction"] = np.where(
         global_df["mean_shap"] >= 0,
         "positive",
@@ -497,7 +717,9 @@ def summarize_shap_values(
             {
                 "feature": feature_names,
                 "shap_value": row_values.astype(float),
-                "feature_value": row_feature_values,
+                "feature_value": [
+                    json_safe_value(value) for value in row_feature_values
+                ],
             },
         )
         row_df["abs_shap_value"] = row_df["shap_value"].abs()
@@ -542,9 +764,22 @@ def generate_shap_bar_plot_base64(
 ) -> str | None:
     """Generate SHAP summary bar plot as base64 PNG."""
     try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
 
         if shap_values_array.size == 0:
+            return None
+
+        shap_values_array = ensure_2d_array(shap_values_array)
+        feature_names, aligned = align_feature_names_and_arrays(
+            feature_names,
+            shap_values_array,
+        )
+        shap_values_array = aligned[0]
+
+        if shap_values_array.size == 0 or not feature_names:
             return None
 
         plt.figure()
@@ -565,9 +800,16 @@ def generate_shap_bar_plot_base64(
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 
-    except (ImportError, RuntimeError, ValueError, TypeError) as error:
+    except (ImportError, RuntimeError, ValueError, TypeError, AssertionError) as error:
         logger.warning("Could not generate SHAP bar plot: %s", error)
         return None
+    finally:
+        try:
+            import matplotlib.pyplot as plt
+
+            plt.close("all")
+        except ImportError:
+            pass
 
 
 def generate_shap_beeswarm_plot_base64(
@@ -579,9 +821,39 @@ def generate_shap_beeswarm_plot_base64(
 ) -> str | None:
     """Generate SHAP beeswarm/summary plot as base64 PNG."""
     try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
 
         if shap_values_array.size == 0:
+            return None
+
+        feature_names, aligned = align_feature_names_and_arrays(
+            feature_names,
+            ensure_2d_array(shap_values_array),
+            ensure_2d_array(feature_values_array),
+        )
+        shap_values_array = aligned[0]
+        feature_values_array = aligned[1]
+        shap_values_array, feature_values_array = align_rows_and_columns(
+            shap_values_array,
+            feature_values_array,
+        )
+
+        if (
+            shap_values_array.size == 0
+            or feature_values_array.size == 0
+            or not feature_names
+        ):
+            return None
+
+        if shap_values_array.shape[0] != feature_values_array.shape[0]:
+            logger.warning(
+                "Skipping SHAP beeswarm plot because row counts differ: shap=%s, features=%s",
+                shap_values_array.shape,
+                feature_values_array.shape,
+            )
             return None
 
         plt.figure()
@@ -601,9 +873,34 @@ def generate_shap_beeswarm_plot_base64(
         buffer.seek(0)
         return base64.b64encode(buffer.read()).decode("utf-8")
 
-    except (ImportError, RuntimeError, ValueError, TypeError) as error:
+    except (ImportError, RuntimeError, ValueError, TypeError, AssertionError) as error:
         logger.warning("Could not generate SHAP beeswarm plot: %s", error)
         return None
+    finally:
+        try:
+            import matplotlib.pyplot as plt
+
+            plt.close("all")
+        except ImportError:
+            pass
+
+
+def run_model_agnostic_shap(
+    shap_module: Any,
+    model_pipeline: Any,
+    raw_sample_features: pd.DataFrame,
+) -> tuple[Any, Any, str]:
+    """Run model-agnostic SHAP for estimators without specialized explainers."""
+    background = raw_sample_features.head(min(50, len(raw_sample_features)))
+
+    if background.empty:
+        raise ExplainabilityError(
+            "No background rows available for model-agnostic SHAP."
+        )
+
+    explainer = shap_module.Explainer(model_pipeline.predict, background)
+    raw_shap_values = explainer(raw_sample_features)
+    return explainer, raw_shap_values, "model_agnostic_shap"
 
 
 def run_shap_explainability(
@@ -625,7 +922,7 @@ def run_shap_explainability(
         )
 
     try:
-        transformed_array = to_numpy_array(transformed_sample_features)
+        transformed_array = ensure_2d_array(to_numpy_array(transformed_sample_features))
         estimator_name = get_estimator_name(estimator)
 
         if transformed_array.size == 0:
@@ -644,19 +941,37 @@ def run_shap_explainability(
             shap_method = "linear_shap"
 
         else:
-            background = raw_sample_features.head(min(50, len(raw_sample_features)))
-            explainer = shap.Explainer(model_pipeline.predict, background)
-            raw_shap_values = explainer(raw_sample_features)
-            shap_method = "model_agnostic_shap"
+            explainer, raw_shap_values, shap_method = run_model_agnostic_shap(
+                shap_module=shap,
+                model_pipeline=model_pipeline,
+                raw_sample_features=raw_sample_features,
+            )
 
-        shap_values_array = normalize_shap_values(raw_shap_values)
         feature_values_array = transformed_array
+        shap_values_array = normalize_shap_values_for_matrix(
+            raw_shap_values,
+            expected_rows=feature_values_array.shape[0],
+            expected_features=feature_values_array.shape[1],
+        )
+        shap_values_array = ensure_2d_array(shap_values_array)
+        shap_values_array, feature_values_array = align_rows_and_columns(
+            shap_values_array,
+            feature_values_array,
+        )
 
         if shap_values_array.size == 0:
             return empty_shap_result(
                 method=shap_method,
                 message="SHAP values could not be summarized.",
             )
+
+        feature_names, aligned = align_feature_names_and_arrays(
+            feature_names,
+            shap_values_array,
+            feature_values_array,
+        )
+        shap_values_array = aligned[0]
+        feature_values_array = aligned[1]
 
         summary = summarize_shap_values(
             shap_values_array=shap_values_array,
@@ -692,7 +1007,7 @@ def run_shap_explainability(
             "available": True,
             "method": shap_method,
             "model_type": estimator_name,
-            "base_value": get_base_value(raw_shap_values),
+            "base_value": get_explainer_base_value(explainer, raw_shap_values),
             "top_features": global_importance,
             "global_importance": global_importance,
             "positive_contributors": summary.get("positive_contributors", []),
@@ -703,7 +1018,13 @@ def run_shap_explainability(
             "message": "Real SHAP explainability generated successfully.",
         }
 
-    except (AttributeError, TypeError, ValueError, RuntimeError) as error:
+    except (
+        AttributeError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        AssertionError,
+    ) as error:
         logger.warning("SHAP explainability skipped: %s", error)
         return empty_shap_result(message=f"SHAP explainability skipped: {error}")
 
@@ -734,7 +1055,8 @@ def generate_explainability_summary(
     if shap_result.get("available"):
         source = "shap"
         top_features = shap_result.get("global_importance", []) or shap_result.get(
-            "top_features", []
+            "top_features",
+            [],
         )
     elif builtin_importance.get("available"):
         source = "built_in"
@@ -782,6 +1104,34 @@ def get_summary_message(source: str, top_feature: str | None) -> str:
         "Explainability is not available for the selected model. "
         "This can happen when the model type is unsupported or SHAP is disabled/not installed."
     )
+
+
+def build_metadata_warnings(
+    sample_features: pd.DataFrame,
+    transformed_feature_count: int,
+    builtin_importance: dict[str, Any],
+    shap_result: dict[str, Any],
+) -> list[str]:
+    """Build non-fatal explainability warnings for UI/API."""
+    warnings: list[str] = []
+
+    if len(sample_features) < 20:
+        warnings.append(
+            "Explainability used fewer than 20 sample rows; feature rankings may be noisy.",
+        )
+
+    if transformed_feature_count > 500:
+        warnings.append(
+            "Large transformed feature space detected; one-hot encoded importance can be hard to interpret.",
+        )
+
+    if not builtin_importance.get("available") and not shap_result.get("available"):
+        warnings.append("No explainability method produced feature importance.")
+
+    if shap_result.get("available") and not shap_result.get("plots"):
+        warnings.append("SHAP values were generated, but plots were not generated.")
+
+    return warnings
 
 
 def run_model_explainability(
@@ -834,7 +1184,7 @@ def run_model_explainability(
 
         if estimator is None:
             raise ExplainabilityError(
-                "Could not extract estimator from model pipeline."
+                "Could not extract estimator from model pipeline.",
             )
 
         sample = sample_dataframe(
@@ -844,8 +1194,13 @@ def run_model_explainability(
         )
 
         transformed_sample = transform_features(preprocessor, sample)
-        transformed_array = to_numpy_array(transformed_sample)
+        transformed_array = ensure_2d_array(to_numpy_array(transformed_sample))
         feature_names = get_feature_names(preprocessor, sample, transformed_sample)
+        feature_names, aligned = align_feature_names_and_arrays(
+            feature_names,
+            transformed_array,
+        )
+        transformed_array = aligned[0]
 
         builtin_importance = get_builtin_feature_importance(
             estimator=estimator,
@@ -874,21 +1229,24 @@ def run_model_explainability(
             shap_result=shap_result,
         )
 
+        warnings = build_metadata_warnings(
+            sample_features=sample,
+            transformed_feature_count=len(feature_names),
+            builtin_importance=builtin_importance,
+            shap_result=shap_result,
+        )
+
         report: dict[str, Any] = {
             "enabled": True,
             "available": bool(
                 builtin_importance.get("available") or shap_result.get("available"),
             ),
             "best_model_name": str(best_model_name),
-            "best_model": best_model,
+            "best_model": json_safe_value(best_model),
             "model_type": get_estimator_name(estimator),
             "sample_rows_used": int(len(sample)),
             "transformed_feature_count": int(len(feature_names)),
-            "transformed_shape": (
-                list(transformed_array.shape)
-                if hasattr(transformed_array, "shape")
-                else None
-            ),
+            "transformed_shape": list(transformed_array.shape),
             "config": {
                 "run_shap": bool(config["run_shap"]),
                 "max_samples": int(config["max_samples"]),
@@ -899,6 +1257,7 @@ def run_model_explainability(
             "builtin_feature_importance": builtin_importance,
             "shap": shap_result,
             "summary": summary,
+            "warnings": warnings,
             "notes": [
                 "Feature importance explains model behavior, not causal impact.",
                 "Mean absolute SHAP shows average impact magnitude across sampled rows.",
