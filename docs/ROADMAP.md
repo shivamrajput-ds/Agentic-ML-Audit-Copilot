@@ -21,6 +21,7 @@ The long-term goal is to combine:
 - Workflow orchestration
 - API-first access
 - Clean reporting
+- Deployment-ready engineering practices
 
 The project will continue to follow one important principle:
 
@@ -43,6 +44,7 @@ Current release includes:
 - Decision Router
 - Human Review Gate
 - Reviewer decision workflow
+- Continue-after-approval workflow
 - Metric recommendation
 - Scikit-learn preprocessing pipeline
 - Baseline model training
@@ -53,14 +55,35 @@ Current release includes:
 - FastAPI REST API
 - FastAPI human review endpoints
 - Streamlit dashboard
+- Streamlit Cloud deployment
 - Audit Q&A
 - Markdown report export
 - JSON report export
 - Docker support
+- Docker Hub release
 - GitHub Actions CI
 - pytest test suite
 - Ruff formatting and linting
 - Repository assets and documentation
+
+Release artifacts:
+
+```text
+Streamlit Dashboard
+FastAPI API
+Docker image
+GitHub documentation
+Architecture diagrams
+Dashboard screenshots
+Demo assets
+```
+
+Docker image tags:
+
+```text
+shivamrajput130/agentic-ml-audit-copilot:latest
+shivamrajput130/agentic-ml-audit-copilot:v1.1.0
+```
 
 ---
 
@@ -78,6 +101,8 @@ Planned improvements:
 - Improved report templates
 - Better dashboard download experience
 - Safer handling for large categorical columns
+- Cleaner upload validation messages
+- Better sample dataset examples
 
 Status: Planned
 
@@ -95,6 +120,8 @@ Planned improvements:
 - Better SHAP summaries
 - Clearer feature importance explanations
 - Explainability export support
+- Local explanation examples
+- Improved interpretation notes for non-technical users
 
 Status: Planned
 
@@ -113,6 +140,8 @@ Planned improvements:
 - Train-test distribution comparison
 - Better outlier diagnostics
 - Domain rule validation support
+- Better duplicate and near-duplicate diagnostics
+- Dataset readiness scoring improvements
 
 Status: Planned
 
@@ -130,6 +159,8 @@ Planned improvements:
 - Additional baseline models
 - Configurable model registry hooks
 - Better metric comparison views
+- Better classification threshold analysis
+- Better regression residual diagnostics
 
 Status: Planned
 
@@ -147,6 +178,8 @@ Planned improvements:
 - Role-based approval flow
 - Dataset approval history
 - Exportable review decision records
+- Signed review summary export
+- Review comments and evidence tracking
 
 Status: Planned
 
@@ -166,6 +199,8 @@ Planned improvements:
 - API job status endpoint
 - Remote MLflow setup guide
 - Cloud deployment templates
+- More robust artifact storage
+- Production logging strategy
 
 Status: Future
 
@@ -188,6 +223,9 @@ Possible future modules:
 - Kubernetes deployment
 - Team workspaces
 - Authentication and authorization
+- Workspace-level project history
+- Report sharing links
+- Scheduled audit runs
 
 Status: Idea
 
@@ -205,6 +243,9 @@ Planned documentation improvements:
 - MLflow usage guide
 - Human review workflow examples
 - Report interpretation guide
+- Docker Hub usage guide
+- Streamlit Cloud deployment guide
+- Interview/project explanation guide
 
 Status: Planned
 
@@ -222,6 +263,8 @@ Future testing goals:
 - Performance benchmarks
 - Larger synthetic dataset tests
 - Error-handling regression tests
+- Snapshot tests for JSON-safe responses
+- Deployment smoke tests
 
 Status: Planned
 
@@ -238,6 +281,8 @@ Future community improvements:
 - Contributor setup guide
 - Project discussion board
 - Project wiki
+- Demo dataset contribution guide
+- Documentation contribution guide
 
 Status: Planned
 
@@ -256,6 +301,23 @@ Future development should follow these principles:
 - Keep documentation accurate
 - Avoid exaggerated claims
 - Prefer reliable baselines before advanced optimization
+- Treat leakage as a possible risk, not automatic truth
+- Keep the LLM limited to explanation, Q&A, and report writing
+
+---
+
+## What Should Not Be Prioritized Yet
+
+The project should not rush into:
+
+- Complex AutoML claims
+- Production governance claims
+- Full enterprise security claims
+- Large-scale distributed architecture before core audit quality improves
+- Too many models before stronger audit and validation modules
+- Heavy UI features that do not improve review quality
+
+The strongest direction is to improve audit reliability, explainability, review history, and deployment quality step by step.
 
 ---
 
@@ -274,6 +336,6 @@ Future development should follow these principles:
 
 Agentic ML Audit Copilot is evolving toward a stronger ML audit and review platform.
 
-The current version already supports deterministic tabular data auditing, human-in-the-loop review, baseline modeling, MLflow tracking, SHAP explainability, FastAPI, Streamlit, Docker, and documentation.
+The current version already supports deterministic tabular data auditing, human-in-the-loop review, baseline modeling, MLflow tracking, SHAP explainability, FastAPI, Streamlit, Streamlit Cloud, Docker, Docker Hub release, and documentation.
 
 Future releases will focus on broader data format support, stronger explainability, drift detection, governance, scalability, and deployment readiness while preserving the core deterministic-first design.

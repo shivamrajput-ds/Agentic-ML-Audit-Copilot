@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to **Agentic ML Audit Copilot**.
 
-Contributions are welcome if they improve reliability, documentation, testing, user experience, or audit capabilities.
+Contributions are welcome if they improve reliability, documentation, testing, user experience, deployment quality, or ML audit capabilities.
 
 ---
 
@@ -14,8 +14,10 @@ Please review the main documentation:
 - `docs/ARCHITECTURE.md`
 - `docs/API.md`
 - `docs/USAGE.md`
+- `DOCKER.md`
 - `CHANGELOG.md`
 - `CODE_OF_CONDUCT.md`
+- `SECURITY.md`
 
 ---
 
@@ -33,6 +35,7 @@ You can contribute by:
 - Adding new audit modules
 - Improving MLflow tracking
 - Improving explainability support
+- Improving Docker and deployment support
 - Improving human-in-the-loop review workflows
 
 ---
@@ -49,15 +52,21 @@ cd Agentic-ML-Audit-Copilot
 Create a virtual environment:
 
 ```bash
-uv venv
+uv venv --python 3.12
 ```
 
 Activate the environment.
 
-Windows:
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Windows Git Bash:
 
 ```bash
-.venv\Scripts\activate
+source .venv/Scripts/activate
 ```
 
 Linux/macOS:
@@ -75,6 +84,30 @@ uv pip install -e .
 
 ---
 
+## Environment Variables
+
+Create a local `.env` file only on your machine:
+
+```text
+GROQ_API_KEY=your_groq_api_key
+```
+
+Do not commit `.env` or real API keys.
+
+For deterministic audit-only usage, LLM features can be disabled if supported by the configuration:
+
+```bash
+export LLM_ENABLED=false
+```
+
+Windows PowerShell:
+
+```powershell
+$env:LLM_ENABLED="false"
+```
+
+---
+
 ## Run the Application
 
 Run the Streamlit dashboard:
@@ -83,7 +116,13 @@ Run the Streamlit dashboard:
 uv run streamlit run app/streamlit_app.py --server.port 8501
 ```
 
-Run the FastAPI backend:
+Open:
+
+```text
+http://localhost:8501
+```
+
+Run the FastAPI backend in a second terminal:
 
 ```bash
 uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
@@ -95,6 +134,53 @@ Open the API docs:
 http://127.0.0.1:8000/docs
 ```
 
+Optional MLflow UI:
+
+```bash
+uv run mlflow ui --backend-store-uri mlruns --host 127.0.0.1 --port 5000
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+---
+
+## Run with Docker
+
+Build locally:
+
+```bash
+docker build -t agentic-ml-audit-copilot .
+```
+
+Run both Streamlit and FastAPI:
+
+```bash
+docker run --rm \
+  --name agentic-audit-test \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  agentic-ml-audit-copilot:latest
+```
+
+Open:
+
+```text
+Streamlit Dashboard: http://localhost:8501
+FastAPI Docs:       http://localhost:8000/docs
+Health Check:       http://localhost:8000/health
+```
+
+For more details, read:
+
+```text
+DOCKER.md
+```
+
 ---
 
 ## Run Quality Checks
@@ -102,12 +188,13 @@ http://127.0.0.1:8000/docs
 Before opening a pull request, run:
 
 ```bash
+uv run python -m py_compile app/streamlit_app.py
 uv run ruff check . --fix --unsafe-fixes
 uv run ruff format .
 uv run pytest -q
 ```
 
-A pull request should not introduce failing tests or formatting issues.
+A pull request should not introduce failing tests, formatting issues, or broken imports.
 
 ---
 
@@ -125,6 +212,8 @@ Please follow these guidelines:
 - Do not commit large generated files unless they are required assets.
 - Keep API responses JSON-safe.
 - Keep user-facing errors clear and actionable.
+- Prefer deterministic checks over LLM-based judgment.
+- Keep Streamlit UI state predictable and easy to reset.
 
 ---
 
@@ -141,6 +230,7 @@ Please keep these rules in mind:
 - Risky datasets should pass through the Human Review Gate.
 - Baseline modeling should continue only after the workflow allows it.
 - Avoid hiding important warnings from the user.
+- Do not present baseline models as production-ready final models.
 
 ---
 
@@ -161,6 +251,62 @@ The main HITL decisions are:
 - Mark false positive
 - Needs data fix
 - Reject modeling
+
+Changes to the human review workflow should be reflected in:
+
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API.md`
+- `docs/USAGE.md`
+- Streamlit UI copy
+- FastAPI response examples, if behavior changes
+
+---
+
+## API Guidelines
+
+When changing FastAPI endpoints:
+
+- Keep request and response schemas clear.
+- Keep error messages actionable.
+- Avoid returning non-serializable Python objects.
+- Document new endpoints in `docs/API.md`.
+- Update README endpoint tables if needed.
+- Test upload-based endpoints when possible.
+
+---
+
+## Streamlit Guidelines
+
+When changing the dashboard:
+
+- Avoid nested expanders.
+- Use stable Streamlit keys for widgets inside loops.
+- Keep file upload and session state behavior clear.
+- Keep the Human Gate easy to understand.
+- Do not hide important warnings.
+- Test the full flow: upload CSV → select target → run audit → review gate → continue modeling → report/downloads.
+
+---
+
+## Testing Guidelines
+
+Add or update tests when you change:
+
+- Data quality checks
+- Leakage detection
+- Metric recommendation
+- Class imbalance logic
+- Baseline modeling behavior
+- Human review routing
+- API response behavior
+- JSON-safe serialization
+
+Recommended command:
+
+```bash
+uv run pytest -q
+```
 
 ---
 
@@ -226,6 +372,7 @@ Before submitting a pull request, verify that:
 - API changes are reflected in docs
 - UI changes include screenshots if helpful
 - Human review behavior remains clear and safe
+- Docker behavior is still correct if runtime dependencies changed
 
 ---
 
@@ -242,6 +389,7 @@ When reporting a bug, include:
 - Relevant package versions
 - Full error logs or traceback
 - Screenshots if the issue is UI-related
+- Whether the issue happens locally, in Docker, or on Streamlit Cloud
 
 ---
 
@@ -284,13 +432,42 @@ Avoid exaggerated claims. Keep documentation honest and useful.
 
 ---
 
+## Security Guidelines
+
+Please read:
+
+```text
+SECURITY.md
+```
+
+Do not include:
+
+- Real API keys
+- `.env` files
+- Private datasets
+- Access tokens
+- Credentials
+- Personal private paths
+
+Use placeholders such as:
+
+```text
+your_groq_api_key
+```
+
+---
+
 ## Community Guidelines
 
 Please be respectful in issues, pull requests, discussions, and reviews.
 
 Constructive feedback is encouraged. Personal attacks, harassment, or disrespectful behavior are not acceptable.
 
-See `CODE_OF_CONDUCT.md` for details.
+See:
+
+```text
+CODE_OF_CONDUCT.md
+```
 
 ---
 

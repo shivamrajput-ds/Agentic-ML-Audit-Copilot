@@ -4,7 +4,7 @@
 
 The `assets/` directory contains the visual resources used in **Agentic ML Audit Copilot**.
 
-These assets are used in the README, documentation, GitHub repository preview, project demo, and portfolio presentation.
+These assets are used in the README, documentation, GitHub repository preview, project demo, Docker Hub page, Streamlit deployment references, and portfolio presentation.
 
 The goal of this folder is simple:
 
@@ -12,6 +12,7 @@ The goal of this folder is simple:
 - Avoid duplicate screenshots
 - Keep documentation paths consistent
 - Make the repository look clean and professional
+- Keep all visuals aligned with the current `v1.1.0` Human-in-the-Loop workflow
 
 ---
 
@@ -56,7 +57,7 @@ Example:
 
 ```md
 <p align="center">
-  <img src="assets/branding/repo_banner.png" alt="Agentic ML Audit Copilot Banner">
+  <img src="assets/branding/repo_banner.png" width="100%" alt="Agentic ML Audit Copilot Banner">
 </p>
 ```
 
@@ -77,15 +78,29 @@ Recommended README usage:
 ```md
 ## System Architecture
 
-![System Architecture](assets/architecture/01_system_architecture.png)
+<p align="center">
+  <img src="assets/architecture/01_system_architecture.png" width="95%" alt="System Architecture">
+</p>
 
 ## Human-in-the-Loop Workflow
 
-![Human Review Workflow](assets/architecture/02_hitl_workflow.png)
+<p align="center">
+  <img src="assets/architecture/02_hitl_workflow.png" width="95%" alt="Human Review Workflow">
+</p>
 
 ## FastAPI Workflow
 
-![FastAPI Workflow](assets/architecture/03_fastapi_workflow.png)
+<p align="center">
+  <img src="assets/architecture/03_fastapi_workflow.png" width="95%" alt="FastAPI Workflow">
+</p>
+```
+
+Recommended docs usage from files inside `docs/`:
+
+```md
+<p align="center">
+  <img src="../assets/architecture/01_system_architecture.png" width="95%" alt="System Architecture">
+</p>
 ```
 
 ---
@@ -104,15 +119,31 @@ These screenshots should be captured from the running application.
 Recommended README usage:
 
 ```md
-## Dashboard Preview
+## Dashboard Screenshots
 
-![Streamlit Home](assets/screenshots/01_streamlit_home.png)
+### Streamlit Home
 
-![Human Review Gate](assets/screenshots/02_human_review_gate.png)
+<p align="center">
+  <img src="assets/screenshots/01_streamlit_home.png" width="95%" alt="Streamlit Home">
+</p>
 
-![Executive Dashboard](assets/screenshots/03_executive_dashboard.png)
+### Human Review Gate
 
-![FastAPI Docs](assets/screenshots/04_fastapi_docs.png)
+<p align="center">
+  <img src="assets/screenshots/02_human_review_gate.png" width="95%" alt="Human Review Gate">
+</p>
+
+### Executive Dashboard
+
+<p align="center">
+  <img src="assets/screenshots/03_executive_dashboard.png" width="95%" alt="Executive Dashboard">
+</p>
+
+### FastAPI Docs
+
+<p align="center">
+  <img src="assets/screenshots/04_fastapi_docs.png" width="95%" alt="FastAPI Docs">
+</p>
 ```
 
 ---
@@ -130,7 +161,7 @@ Example README usage:
 ## Demo Preview
 
 <p align="center">
-  <img src="assets/demo/demo_git.gif" width="100%" alt="Project Demo">
+  <img src="assets/demo/demo_git.gif" width="100%" alt="Agentic ML Audit Copilot Demo">
 </p>
 ```
 
@@ -138,7 +169,9 @@ Example README usage:
 
 ## Screenshot Capture Checklist
 
-Before taking screenshots, run the app locally:
+Before taking screenshots, run the app locally.
+
+Run Streamlit:
 
 ```bash
 uv run streamlit run app/streamlit_app.py --server.port 8501
@@ -150,12 +183,39 @@ Run FastAPI in a second terminal:
 uv run uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
+Or run both services with Docker:
+
+```bash
+docker run --rm \
+  --name agentic-audit-copilot \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  shivamrajput130/agentic-ml-audit-copilot:v1.1.0
+```
+
 Capture these views:
 
 1. Streamlit home page after app loads
-2. Human Review Gate tab after running an audit with risks
+2. Human Review Gate tab after running an audit with review items
 3. Executive dashboard after audit results are available
-4. FastAPI Swagger UI at `http://127.0.0.1:8000/docs`
+4. FastAPI Swagger UI at `http://127.0.0.1:8000/docs` or `http://localhost:8000/docs`
+
+---
+
+## Screenshot Quality Checklist
+
+Before committing screenshots, check:
+
+- The UI matches the current `v1.1.0` workflow.
+- No real API keys are visible.
+- No private file paths are visible.
+- No private datasets or personal information are visible.
+- Browser bookmarks and unrelated tabs are hidden if possible.
+- The screenshot is readable on GitHub.
+- The screenshot is not outdated compared with the current Streamlit UI.
+- Human Gate screenshot clearly shows review decisions or review items.
+- FastAPI screenshot shows the current HITL endpoints.
 
 ---
 
@@ -185,6 +245,7 @@ Best practices:
 - Keep labels readable.
 - Prefer fewer strong visuals over many weak screenshots.
 - Replace old screenshots after major UI changes.
+- Keep file sizes reasonable so the repository stays lightweight.
 
 ---
 
@@ -215,6 +276,7 @@ final_latest.png
 new_image.png
 copy2.png
 banner_final_final.png
+youtube_demo.txt
 ```
 
 ---
@@ -227,7 +289,8 @@ When updating an asset:
 2. Replace the old file instead of adding duplicates.
 3. Check README image paths after replacing.
 4. Check documentation image paths after replacing.
-5. Run `git status` to confirm only intended files changed.
+5. Check Docker Hub or portfolio text if it references the same visual.
+6. Run `git status` to confirm only intended files changed.
 
 Useful command:
 
@@ -241,6 +304,12 @@ Add assets:
 git add assets/
 ```
 
+Commit example:
+
+```bash
+git commit -m "Update project assets for v1.1.0"
+```
+
 ---
 
 ## Paths Used in Documentation
@@ -250,7 +319,13 @@ From `README.md`, use paths like:
 ```text
 assets/branding/repo_banner.png
 assets/architecture/01_system_architecture.png
+assets/architecture/02_hitl_workflow.png
+assets/architecture/03_fastapi_workflow.png
+assets/screenshots/01_streamlit_home.png
+assets/screenshots/02_human_review_gate.png
 assets/screenshots/03_executive_dashboard.png
+assets/screenshots/04_fastapi_docs.png
+assets/demo/demo_git.gif
 ```
 
 From files inside `docs/`, use paths like:
@@ -277,7 +352,10 @@ Avoid adding:
 - Random generated images
 - Temporary images
 - Local system screenshots with private paths
+- Screenshots showing API keys or secrets
+- Screenshots showing private datasets
 - Large files that slow down the repository
+- Duplicate files with names like `final`, `new`, `copy`, or `latest`
 
 The final asset set should stay small and strong.
 
@@ -286,6 +364,42 @@ The final asset set should stay small and strong.
 ## Final Asset Set
 
 The recommended final visual set is:
+
+```text
+assets/branding/repo_banner.png
+assets/architecture/01_system_architecture.png
+assets/architecture/02_hitl_workflow.png
+assets/architecture/03_fastapi_workflow.png
+assets/screenshots/01_streamlit_home.png
+assets/screenshots/02_human_review_gate.png
+assets/screenshots/03_executive_dashboard.png
+assets/screenshots/04_fastapi_docs.png
+assets/demo/demo_git.gif
+assets/demo/demo_script.md
+```
+
+This is enough for a clean, recruiter-friendly GitHub repository.
+
+---
+
+## Pre-Push Asset Check
+
+Before pushing, run:
+
+```bash
+git status
+```
+
+Confirm these files exist:
+
+```bash
+ls assets/branding
+ls assets/architecture
+ls assets/screenshots
+ls assets/demo
+```
+
+Expected key files:
 
 ```text
 repo_banner.png
@@ -297,9 +411,8 @@ repo_banner.png
 03_executive_dashboard.png
 04_fastapi_docs.png
 demo_git.gif
+demo_script.md
 ```
-
-This is enough for a clean, recruiter-friendly GitHub repository.
 
 ---
 

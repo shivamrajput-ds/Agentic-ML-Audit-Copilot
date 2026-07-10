@@ -4,9 +4,15 @@
 
 **Agentic ML Audit Copilot** includes an automated test suite for validating the core audit workflow.
 
-The project follows a deterministic-first testing approach. Tests are designed to verify that audit modules, preprocessing, baseline models, and workflow helpers behave consistently across runs.
+The project follows a deterministic-first testing approach. Tests are designed to verify that audit modules, preprocessing, baseline models, API helpers, and workflow behavior remain consistent across runs.
 
-The test suite focuses on correctness, reproducibility, and regression protection.
+The test suite focuses on:
+
+- Correctness
+- Reproducibility
+- Regression protection
+- JSON-safe outputs
+- Safe handling of risky or invalid inputs
 
 ---
 
@@ -100,6 +106,7 @@ uv run pytest tests/test_data_quality.py::test_detects_missing_values -q
 Before committing changes, run:
 
 ```bash
+uv run python -m py_compile app/streamlit_app.py
 uv run ruff check . --fix --unsafe-fixes
 uv run ruff format .
 uv run pytest -q
@@ -126,6 +133,11 @@ git status
 | Preprocessing pipeline | Yes |
 | Baseline models | Yes |
 | Workflow helper behavior | Yes |
+| Risk aggregation | Yes |
+| Decision routing | Yes |
+| Human review helpers | Yes |
+| FastAPI response helpers | Yes |
+| JSON-safe serialization | Yes |
 
 ---
 
@@ -157,6 +169,7 @@ Tests may cover:
 - Duplicate rows
 - Invalid target columns
 - Dataset shape and column summaries
+- JSON-safe profile output
 
 ---
 
@@ -189,6 +202,7 @@ Tests may cover:
 - Infinite values
 - Basic outlier checks
 - Invalid input handling
+- Safe recommendation structure
 
 ---
 
@@ -268,19 +282,122 @@ Baseline tests should verify sanity-check behavior, not advanced model optimizat
 
 ---
 
-## Workflow Tests
+## Risk Aggregator and Decision Router
 
-Workflow-related tests may cover:
+Tests may cover:
 
-- State preparation
-- Risk aggregation
-- Decision routing
-- Human review status
-- Paused workflow behavior
+- Aggregating findings from data quality, leakage, and imbalance modules
+- Generating workflow-level risk summaries
+- Creating review items
+- Routing safe datasets forward
+- Routing risky datasets to the Human Review Gate
+- Blocking or stopping when risks require data fixes
+- Keeping routing output JSON-safe
+
+---
+
+## Human Review Workflow
+
+Tests may cover:
+
+- Review item structure
+- Allowed decision values
+- Final decision validation
 - Approved workflow continuation
-- JSON-safe output handling
+- Rejected workflow stopping behavior
+- Needs-fix workflow stopping behavior
+- Reviewer notes and comments
+- Exportable reviewer decision payloads
 
 The Human Review Gate should make it clear when modeling is paused and why.
+
+---
+
+## FastAPI Tests
+
+FastAPI-related tests may cover:
+
+- Root endpoint
+- Health endpoint
+- Metadata endpoint
+- Workflow guide endpoint
+- Audit modes endpoint
+- Decision template endpoint
+- Upload validation
+- Target column validation
+- JSON-safe response formatting
+- Error response structure
+
+Future integration tests should cover:
+
+- `POST /audit`
+- `POST /audit/summary`
+- `POST /audit/review-gate`
+- `POST /audit/after-human-approval`
+
+---
+
+## Streamlit Checks
+
+Streamlit is harder to test with standard unit tests, but changes should still be manually validated.
+
+Recommended manual flow:
+
+```text
+1. Start Streamlit
+2. Upload CSV
+3. Select target column
+4. Run audit
+5. Confirm dashboard tabs render
+6. Confirm Human Review Gate works
+7. Continue after approval
+8. Confirm baseline results, MLflow status, explainability, reports, and downloads render
+9. Confirm Audit Q&A does not crash
+```
+
+Important UI regression checks:
+
+- Avoid nested expanders.
+- Use stable widget keys inside loops.
+- Do not hide important warnings.
+- Confirm session state reset behavior is understandable.
+
+---
+
+## Docker Validation
+
+After major dependency or startup changes, validate Docker.
+
+Build:
+
+```bash
+docker build -t agentic-ml-audit-copilot .
+```
+
+Run:
+
+```bash
+docker run --rm \
+  --name agentic-audit-test \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  agentic-ml-audit-copilot:latest
+```
+
+Check:
+
+```text
+Streamlit Dashboard: http://localhost:8501
+FastAPI Docs:       http://localhost:8000/docs
+Health Check:       http://localhost:8000/health
+```
+
+If the container name is already used:
+
+```bash
+docker rm -f agentic-audit-test
+```
 
 ---
 
@@ -296,6 +413,14 @@ A typical CI workflow should run:
 - pytest test suite
 
 If any step fails, the CI workflow should fail.
+
+Recommended CI commands:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest -q
+```
 
 ---
 
@@ -315,6 +440,20 @@ For each new feature, try to include:
 - An edge case
 - A regression test for previous bugs, if relevant
 
+Good test names describe behavior:
+
+```python
+def test_review_gate_pauses_when_high_leakage_risk_exists():
+    ...
+```
+
+Avoid vague names:
+
+```python
+def test_case_1():
+    ...
+```
+
 ---
 
 ## Best Practices
@@ -328,6 +467,8 @@ For each new feature, try to include:
 - Do not hide important warnings unless there is a clear reason.
 - Avoid testing implementation details too tightly.
 - Prefer testing expected behavior and output structure.
+- Keep LLM-dependent behavior mocked or optional.
+- Do not require real API keys in automated tests.
 
 ---
 
@@ -372,6 +513,7 @@ uv run ruff format .
 Run full local validation:
 
 ```bash
+uv run python -m py_compile app/streamlit_app.py
 uv run ruff check . --fix --unsafe-fixes
 uv run ruff format .
 uv run pytest -q
@@ -397,7 +539,7 @@ The exact number of tests may change as the project grows.
 
 Planned improvements:
 
-- FastAPI integration tests
+- Broader FastAPI integration tests
 - Human review API tests
 - Streamlit workflow tests
 - Docker validation tests
@@ -407,11 +549,13 @@ Planned improvements:
 - Error-handling regression tests
 - Report generation tests
 - MLflow tracking tests
+- Snapshot tests for JSON-safe API responses
+- Deployment smoke tests
 
 ---
 
 ## Summary
 
-The test suite helps keep Agentic ML Audit Copilot stable as the project evolves.
+The test suite helps keep **Agentic ML Audit Copilot** stable as the project evolves.
 
-Testing focuses on deterministic audit behavior, safe failure handling, JSON-safe outputs, and regression protection across the core ML audit workflow.
+Testing focuses on deterministic audit behavior, safe failure handling, JSON-safe outputs, human review routing, and regression protection across the core ML audit workflow.

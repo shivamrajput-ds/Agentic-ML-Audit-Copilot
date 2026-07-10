@@ -8,7 +8,7 @@ The project is designed to answer one practical question:
 
 > Is this dataset ready for responsible baseline modeling?
 
-Instead of directly training optimized models, the system first checks data quality, possible leakage risks, class imbalance, metric suitability, and workflow readiness. If important risks are found, the workflow pauses at a Human Review Gate before modeling continues.
+Instead of directly training optimized models, the system first checks data quality, possible leakage risks, class imbalance, metric suitability, and workflow readiness. If important risks are found, the workflow can pause at a Human Review Gate before modeling continues.
 
 The project follows a deterministic-first design:
 
@@ -16,7 +16,7 @@ The project follows a deterministic-first design:
 - Scikit-learn handles preprocessing and baseline models.
 - LangGraph orchestrates the audit workflow.
 - MLflow tracks experiment metadata and metrics.
-- SHAP and feature importance explain baseline behavior.
+- SHAP and built-in feature importance explain baseline behavior.
 - The LLM is used only for explanations, audit Q&A, and report writing.
 
 ---
@@ -108,9 +108,10 @@ Responsibilities:
 - Show possible leakage and imbalance risks
 - Show the Human Review Gate
 - Collect reviewer decisions
+- Continue modeling after reviewer approval
 - Display baseline model results
 - Display MLflow, SHAP, and report status
-- Provide Markdown and JSON downloads
+- Provide Markdown, JSON, and metrics downloads
 - Support audit Q&A after results are generated
 
 The dashboard does not directly own the audit logic. It uses the workflow layer and displays the resulting audit state.
@@ -146,7 +147,7 @@ Human review endpoints:
 | GET | `/human-review/decision-template` | Return the reviewer decision JSON template |
 | POST | `/audit/after-human-approval` | Continue workflow after reviewer approval |
 
-The API keeps responses JSON-safe and avoids returning runtime-only Python objects.
+The API keeps responses JSON-safe and avoids returning runtime-only Python objects such as model objects, DataFrames, fitted preprocessors, or raw training arrays.
 
 ---
 
@@ -183,11 +184,48 @@ Human Review Gate
 Continue or Stop
 ```
 
-This design makes the pipeline easier to extend and test.
+This design makes the pipeline easier to extend, test, debug, and document.
 
 ---
 
-## 4. Parallel Audit Layer
+## 4. Dataset Profiler
+
+The profiler loads and summarizes the uploaded dataset.
+
+Typical outputs include:
+
+- Dataset shape
+- Column names
+- Column types
+- Missing values
+- Duplicate rows
+- Memory usage
+- Numeric and categorical summaries
+- Target column summary
+
+The profiler does not make modeling decisions by itself. It provides structured information for downstream audit modules.
+
+---
+
+## 5. Problem Type Detector
+
+The problem detector identifies whether the target setup is likely:
+
+- Classification
+- Regression
+
+This decision affects:
+
+- Metric recommendation
+- Class imbalance applicability
+- Baseline model selection
+- Evaluation strategy
+
+The detector uses deterministic target analysis rather than LLM judgment.
+
+---
+
+## 6. Parallel Audit Layer
 
 The Parallel Audit Layer runs the main deterministic risk checks.
 
@@ -214,7 +252,7 @@ Checks for:
 - Infinite values
 - Outliers
 
-The module reports findings and recommendations. It does not modify the dataset.
+The module reports findings and recommendations. It does not silently modify or remove user data.
 
 ### Leakage Detection
 
@@ -244,7 +282,7 @@ For regression tasks, the module returns a safe not-applicable result.
 
 ---
 
-## 5. Risk Aggregator
+## 7. Risk Aggregator
 
 The Risk Aggregator combines findings from different audit modules into a workflow-level risk summary.
 
@@ -255,12 +293,13 @@ It considers signals such as:
 - Severe class imbalance
 - Ambiguous problem type
 - High-risk target or feature patterns
+- Workflow-level blockers
 
 The goal is to create a clear decision point instead of showing disconnected module outputs.
 
 ---
 
-## 6. Decision Router
+## 8. Decision Router
 
 The Decision Router decides whether the workflow should continue automatically or pause for review.
 
@@ -272,11 +311,22 @@ Pause for Human Review
 Stop / Fix Dataset
 ```
 
-The router does not make final business decisions. It only determines whether the dataset is safe enough to proceed without review.
+The router does not make final business decisions. It only determines whether the dataset is safe enough to proceed without explicit review.
+
+Common workflow statuses may include:
+
+```text
+completed
+continue_to_modeling
+waiting_for_human_approval
+blocked_for_review
+rejected
+needs_fix
+```
 
 ---
 
-## 7. Human Review Gate
+## 9. Human Review Gate
 
 <p align="center">
   <img src="../assets/architecture/02_hitl_workflow.png" width="95%" alt="Human-in-the-Loop ML Audit Workflow">
@@ -284,7 +334,7 @@ The router does not make final business decisions. It only determines whether th
 
 The Human Review Gate is used when the system finds risks that need human judgment.
 
-Reviewer decision options:
+Reviewer item-level decisions include:
 
 - Accept risk and continue
 - Accept flag and fix later
@@ -300,13 +350,13 @@ Rejected
 Needs Fix
 ```
 
-If approved, the workflow continues to metric recommendation, preprocessing, baseline modeling, MLflow, SHAP, and final report generation.
+If approved, the workflow continues to metric recommendation, preprocessing, baseline modeling, MLflow, explainability, and final report generation.
 
 If rejected or marked as needing a data fix, the workflow stops so the dataset can be corrected first.
 
 ---
 
-## 8. Metric Recommender
+## 10. Metric Recommender
 
 The Metric Recommender selects suitable evaluation metrics based on the detected task and audit context.
 
@@ -327,11 +377,11 @@ For regression, it may recommend:
 - R²
 - Median absolute error
 
-The system avoids recommending a single metric blindly.
+The system avoids recommending a single metric blindly. It considers task type and audit signals.
 
 ---
 
-## 9. Preprocessing Pipeline
+## 11. Preprocessing Pipeline
 
 Preprocessing is handled with scikit-learn pipelines.
 
@@ -349,7 +399,7 @@ Preprocessing stays inside the pipeline to reduce train-test leakage risk.
 
 ---
 
-## 10. Baseline Models
+## 12. Baseline Models
 
 Baseline models are used for sanity-check benchmarking.
 
@@ -367,7 +417,7 @@ These models are not meant to be final optimized models. They provide a practica
 
 ---
 
-## 11. MLflow Tracking
+## 13. MLflow Tracking
 
 MLflow records experiment information.
 
@@ -383,23 +433,27 @@ Typical tracked items:
 
 This improves reproducibility and makes model comparison easier.
 
+Note: the Docker container runs FastAPI and Streamlit. MLflow tracking data may be generated by the workflow, while the MLflow UI is usually inspected separately in local development.
+
 ---
 
-## 12. Explainability
+## 14. Explainability
 
 Explainability is separated from model training.
 
 Current explainability outputs may include:
 
-- Feature importance
+- Built-in feature importance
 - SHAP summaries when supported
+- Positive and negative contributors
+- Local explanation samples when available
 - Human-readable interpretation notes
 
 This helps users understand which features influenced the baseline model.
 
 ---
 
-## 13. LLM Report and Audit Q&A
+## 15. LLM Report and Audit Q&A
 
 The LLM layer is used only after deterministic results are produced.
 
@@ -428,7 +482,7 @@ Programmatic HITL flow:
 3. GET /human-review/decision-template
 4. Reviewer fills decision JSON
 5. POST /audit/after-human-approval
-6. Run metric recommendation, baselines, MLflow, SHAP, and final report
+6. Run metric recommendation, baselines, MLflow, explainability, and final report
 ```
 
 This makes the API workflow clear and stateless.
@@ -462,7 +516,7 @@ Human Review Gate
 Approved Workflow Continues
   |
   v
-Baseline Models + MLflow + SHAP
+Baseline Models + MLflow + Explainability
   |
   v
 LLM Explains Deterministic Results
@@ -470,6 +524,36 @@ LLM Explains Deterministic Results
   v
 Final JSON + Markdown Report
 ```
+
+---
+
+## State Design
+
+The workflow state may contain keys such as:
+
+```text
+dataset_path
+target_column
+profile
+problem_type
+data_quality
+leakage
+class_imbalance
+risk_aggregator
+decision_router
+workflow_status
+human_review
+metric_recommendation
+preprocessing
+baseline_results
+mlflow_tracking
+explainability
+llm_report
+audit_report
+execution_summary
+```
+
+Runtime-only objects such as model objects, DataFrames, fitted preprocessors, and raw training arrays should not be returned directly through API responses or downloads.
 
 ---
 
@@ -534,6 +618,10 @@ Contains:
 - Architecture documentation
 - API documentation
 - Usage guide
+- Testing guide
+- Roadmap
+- Known limitations
+- Asset guide
 
 ```text
 assets/
@@ -654,6 +742,8 @@ It covers:
 - Metric recommendation
 - Profiler behavior
 - Workflow helper behavior
+- FastAPI behavior
+- JSON-safe response helpers
 
 The goal is repeatable behavior, not random test success.
 
@@ -661,18 +751,21 @@ The goal is repeatable behavior, not random test success.
 
 ## Deployment Architecture
 
-The project supports local and Docker-based deployment.
+The project supports local, Docker-based, and Streamlit Cloud deployment.
 
 Docker runs:
 
 - FastAPI on port `8000`
 - Streamlit on port `8501`
 
-Docker image:
+Docker images:
 
 ```text
 shivamrajput130/agentic-ml-audit-copilot:latest
+shivamrajput130/agentic-ml-audit-copilot:v1.1.0
 ```
+
+Streamlit Cloud deploys from GitHub and runs the Streamlit dashboard. Docker Hub is used for reproducible local/demo container usage.
 
 ---
 
@@ -718,6 +811,7 @@ The current version focuses on:
 - Regression
 - Single-machine execution
 - Baseline model benchmarking
+- Pre-training audit and review
 
 Not currently included:
 

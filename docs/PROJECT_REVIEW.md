@@ -6,11 +6,33 @@
 
 The project reviews a dataset before baseline model training. It checks data quality, possible leakage risks, class imbalance, metric suitability, workflow risk, baseline performance, explainability, and report readiness.
 
-The goal is not to replace an ML engineer or act as an AutoML system. The goal is to behave like a practical ML reviewer that helps answer:
+The goal is not to replace an ML engineer or behave like a full AutoML platform. The goal is to act like a practical ML reviewer that helps answer:
 
 > Is this dataset ready for responsible baseline modeling?
 
-The project combines ML engineering, workflow orchestration, experiment tracking, explainability, API design, dashboarding, Docker, testing, and LLM-assisted reporting while keeping all ML computation deterministic.
+The project combines ML engineering, workflow orchestration, experiment tracking, explainability, API design, dashboarding, Docker, testing, and LLM-assisted reporting while keeping all core ML computation deterministic.
+
+---
+
+## Release Context
+
+Current reviewed version:
+
+```text
+v1.1.0
+```
+
+Key release focus:
+
+- Human-in-the-loop workflow
+- Risk Aggregator
+- Decision Router
+- Continue-after-approval flow
+- Improved Streamlit dashboard
+- Improved FastAPI documentation
+- Docker release
+- Streamlit Cloud deployment
+- GitHub-ready documentation and assets
 
 ---
 
@@ -30,6 +52,7 @@ The main objectives are:
 - Pause risky workflows for human review
 - Generate structured Markdown and JSON reports
 - Provide both Streamlit and FastAPI interfaces
+- Keep the LLM limited to explanation, Q&A, and report writing
 
 ---
 
@@ -115,6 +138,8 @@ Python performs:
 - Data quality checks
 - Leakage risk detection
 - Class imbalance analysis
+- Risk aggregation
+- Decision routing
 - Metric recommendation logic
 - Preprocessing
 - Baseline model training
@@ -157,7 +182,23 @@ This is one of the strongest parts of the project because it shows that the syst
 
 ---
 
-## 3. Modular Architecture
+## 3. Risk Aggregator and Decision Router
+
+The Risk Aggregator combines findings across audit modules into a workflow-level risk summary.
+
+The Decision Router then decides whether the workflow should:
+
+```text
+Continue
+Pause for Human Review
+Stop / Fix Dataset
+```
+
+This makes the workflow more realistic than a simple checklist because it connects risk detection to an actual modeling decision.
+
+---
+
+## 4. Modular Architecture
 
 The project is divided into clear modules:
 
@@ -168,6 +209,7 @@ The project is divided into clear modules:
 - Class imbalance detection
 - Risk aggregation
 - Decision routing
+- Human review
 - Metric recommendation
 - Preprocessing
 - Baseline models
@@ -180,7 +222,7 @@ This structure improves maintainability and makes future audit modules easier to
 
 ---
 
-## 4. LangGraph Workflow Orchestration
+## 5. LangGraph Workflow Orchestration
 
 LangGraph is used to organize the audit workflow.
 
@@ -194,9 +236,11 @@ The workflow is useful for:
 - Human review pause points
 - Future workflow expansion
 
+This is a good use of an agentic framework because the graph controls the workflow while deterministic Python modules do the actual ML work.
+
 ---
 
-## 5. FastAPI Backend
+## 6. FastAPI Backend
 
 The project exposes a REST API for programmatic access.
 
@@ -225,7 +269,7 @@ This makes the project more than a Streamlit-only demo.
 
 ---
 
-## 6. Streamlit Dashboard
+## 7. Streamlit Dashboard
 
 The Streamlit dashboard provides a usable interface for the complete audit workflow.
 
@@ -237,6 +281,7 @@ It includes:
 - Data quality view
 - Leakage risk view
 - Human Review Gate
+- Reviewer decision controls
 - Baseline model results
 - MLflow status
 - Explainability output
@@ -247,7 +292,7 @@ The UI makes the project easier to understand for recruiters, reviewers, and use
 
 ---
 
-## 7. Baseline-First Modeling
+## 8. Baseline-First Modeling
 
 The project focuses on baseline models rather than pretending to provide final optimized models.
 
@@ -265,7 +310,7 @@ This is a practical engineering choice because baselines help validate whether t
 
 ---
 
-## 8. MLflow Experiment Tracking
+## 9. MLflow Experiment Tracking
 
 MLflow is integrated for experiment tracking.
 
@@ -282,20 +327,48 @@ This improves experiment reproducibility and makes the project closer to a real 
 
 ---
 
-## 9. Explainability
+## 10. Explainability
 
 The project includes explainability support through:
 
 - Feature importance
 - SHAP summaries when supported
+- Human-readable interpretation notes
 
 This helps users understand which features influence baseline model behavior.
 
-Explainability is especially useful after human approval because it gives the reviewer more confidence in the modeling result.
+Explainability is especially useful after human approval because it gives the reviewer more confidence in the baseline modeling result.
 
 ---
 
-## 10. Testing and Code Quality
+## 11. Docker and Deployment Readiness
+
+The project includes Docker support.
+
+The Docker image runs:
+
+```text
+FastAPI:   8000
+Streamlit: 8501
+```
+
+Published image tags:
+
+```text
+shivamrajput130/agentic-ml-audit-copilot:latest
+shivamrajput130/agentic-ml-audit-copilot:v1.1.0
+```
+
+The Streamlit dashboard is also deployable through Streamlit Cloud from GitHub.
+
+This gives the project two useful demo paths:
+
+- Streamlit Cloud for quick public dashboard access
+- Docker Hub for reproducible local/demo execution with both Streamlit and FastAPI
+
+---
+
+## 12. Testing and Code Quality
 
 The repository includes automated tests and quality checks.
 
@@ -309,6 +382,7 @@ Current quality practices include:
 - Structured logging
 - Custom exceptions
 - Configuration-driven behavior
+- JSON-safe API response handling
 
 This improves reliability and makes the repository easier to maintain.
 
@@ -325,8 +399,10 @@ Current support:
 - Regression
 - Local execution
 - Docker execution
+- Streamlit Cloud dashboard deployment
 - Streamlit dashboard
 - FastAPI backend
+- Human-in-the-loop review workflow
 
 ---
 
@@ -378,8 +454,23 @@ The project separates:
 - Audit modules
 - Utilities
 - Reports
+- Assets and documentation
 
 This separation makes the project easier to debug and extend.
+
+---
+
+## JSON-Safe API Design
+
+The API avoids returning runtime-only Python objects such as:
+
+- DataFrames
+- Model objects
+- Fitted preprocessors
+- Raw training arrays
+- Non-serializable NumPy objects
+
+This is important for practical API reliability.
 
 ---
 
@@ -398,6 +489,8 @@ This separation makes the project easier to debug and extend.
 | MLflow tracking | Yes |
 | SHAP / feature importance | Yes |
 | Docker support | Yes |
+| Docker Hub release | Yes |
+| Streamlit Cloud deployment | Yes |
 | GitHub Actions CI | Yes |
 | pytest test suite | Yes |
 | Ruff formatting and linting | Yes |
@@ -405,6 +498,7 @@ This separation makes the project easier to debug and extend.
 | Security policy | Yes |
 | Contribution guide | Yes |
 | Changelog | Yes |
+| Asset structure | Yes |
 
 ---
 
@@ -423,6 +517,7 @@ The current version intentionally does not include:
 - Persistent reviewer history
 - Kubernetes deployment
 - Cloud-native deployment templates
+- Full enterprise governance workflow
 
 These are valid future improvements, but they are outside the current scope.
 
@@ -487,6 +582,63 @@ Core technologies:
 
 ---
 
+## Portfolio Positioning
+
+This project is strongest when positioned as:
+
+```text
+A Human-in-the-Loop ML Audit Copilot for tabular datasets before baseline model training.
+```
+
+Best resume/project framing:
+
+```text
+Built a deterministic-first Agentic ML audit system that profiles tabular datasets, detects data quality, leakage, and imbalance risks, routes unsafe workflows through a Human Review Gate, benchmarks baseline models, logs experiments with MLflow, explains results with SHAP, and exposes the workflow through FastAPI, Streamlit, Docker, and Streamlit Cloud.
+```
+
+Avoid positioning it as:
+
+```text
+AutoML platform
+Production governance platform
+Final model optimization system
+Enterprise security platform
+```
+
+The honest positioning is stronger because the project is focused, realistic, and defensible in interviews.
+
+---
+
+## Suggested Rating
+
+For a student portfolio / internship-level ML engineering project:
+
+| Area | Rating |
+| --- | :---: |
+| Idea quality | 9/10 |
+| ML engineering depth | 8.5/10 |
+| Agentic workflow usage | 8.5/10 |
+| Human-in-the-loop design | 9/10 |
+| API + UI completeness | 8.5/10 |
+| Docker/deployment readiness | 8.5/10 |
+| Documentation quality | 9/10 |
+| Production readiness | 7/10 |
+| Portfolio value | 9/10 |
+
+Overall portfolio rating:
+
+```text
+8.8 / 10
+```
+
+With future drift detection, fairness checks, persistent review history, and stronger integration tests, this can move closer to:
+
+```text
+9.2 / 10
+```
+
+---
+
 ## Overall Review
 
 Agentic ML Audit Copilot is a strong portfolio-level ML engineering project because it goes beyond basic model training.
@@ -501,6 +653,7 @@ It demonstrates:
 - MLflow tracking
 - Explainability
 - Docker deployment
+- Streamlit Cloud deployment
 - Automated testing
 - Documentation discipline
 

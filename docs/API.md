@@ -4,9 +4,9 @@
 
 **Agentic ML Audit Copilot** exposes a REST API built with **FastAPI**.
 
-The API allows clients to upload tabular datasets, run deterministic audit checks, review dataset risks, continue modeling after human approval, and retrieve structured audit results.
+The API allows clients to upload tabular datasets, run deterministic pre-training audit checks, review dataset risks, continue modeling after human approval, and retrieve structured audit results.
 
-Interactive documentation is available through Swagger UI and ReDoc.
+Interactive API documentation is available through Swagger UI and ReDoc.
 
 ---
 
@@ -16,6 +16,12 @@ Local development:
 
 ```text
 http://127.0.0.1:8000
+```
+
+Docker local run:
+
+```text
+http://localhost:8000
 ```
 
 Swagger UI:
@@ -42,7 +48,9 @@ http://127.0.0.1:8000/health
 
 Current version:
 
-- No authentication required
+```text
+No authentication required
+```
 
 Planned future support:
 
@@ -51,7 +59,7 @@ Planned future support:
 - OAuth2
 - Role-based access control
 
-For local portfolio and demo usage, the API can be run without authentication. Production deployments should add authentication, rate limiting, and secure secret management.
+For local portfolio and demo usage, the API can be run without authentication. Production deployments should add authentication, authorization, rate limiting, request logging, and secure secret management.
 
 ---
 
@@ -103,6 +111,46 @@ config.yaml
 | POST | `/audit/review-gate` | Run audit until Human Review Gate |
 | GET | `/human-review/decision-template` | Return reviewer decision JSON template |
 | POST | `/audit/after-human-approval` | Continue workflow after reviewer approval |
+
+---
+
+## Workflow Modes
+
+The API supports multiple workflow patterns.
+
+| Mode | Purpose |
+| --- | --- |
+| `standard` | Run audit with automatic workflow routing |
+| `review_gate` | Run deterministic checks and stop at the Human Review Gate |
+| `human_approved` | Continue modeling after explicit reviewer approval |
+
+Recommended production-like flow:
+
+```text
+1. POST /audit/review-gate
+2. Inspect human_review.review_items
+3. GET /human-review/decision-template
+4. Fill reviewer decision JSON
+5. POST /audit/after-human-approval
+6. Continue to metrics, baselines, MLflow, explainability, and final report
+```
+
+---
+
+## Workflow Status Values
+
+Common workflow statuses may include:
+
+| Status | Meaning |
+| --- | --- |
+| `completed` | Audit completed normally |
+| `continue_to_modeling` | Workflow is allowed to continue to modeling stages |
+| `waiting_for_human_approval` | Workflow is paused at the Human Review Gate |
+| `blocked_for_review` | Workflow detected blocking risks and requires review |
+| `rejected` | Reviewer rejected modeling |
+| `needs_fix` | Dataset needs fixes before modeling |
+
+Exact status fields may vary depending on the endpoint and workflow mode.
 
 ---
 
@@ -198,7 +246,7 @@ GET /workflow-guide
     "Aggregate risks",
     "Pause at Human Review Gate if needed",
     "Continue after reviewer approval",
-    "Run baseline models, MLflow, SHAP, and final report"
+    "Run metric recommendation, preprocessing, baseline models, MLflow, explainability, and final report"
   ],
   "human_review_decisions": [
     "accept_risk_and_continue",
@@ -249,7 +297,7 @@ GET /audit/modes
 
 Runs the audit workflow.
 
-This endpoint is useful for direct API usage. If the dataset contains serious risks, the response may show that the workflow paused for human review.
+This endpoint is useful for direct API usage. If the dataset contains important risks, the response may show that the workflow paused for human review.
 
 ### Request
 
@@ -263,10 +311,10 @@ Parameters:
 
 | Field | Type | Required | Description |
 | --- | --- | :---: | --- |
-| file | CSV file | Yes | Dataset to audit |
-| target_column | String | Yes | Target column name |
-| workflow_mode | String | No | Optional workflow mode |
-| human_review_decision_json | String | Required only for approved continuation mode | Reviewer decision payload as JSON string |
+| `file` | CSV file | Yes | Dataset to audit |
+| `target_column` | String | Yes | Target column name |
+| `workflow_mode` | String | No | Optional workflow mode |
+| `human_review_decision_json` | String | Required only for approved continuation mode | Reviewer decision payload as JSON string |
 
 ### Basic Example
 
@@ -283,9 +331,16 @@ curl -X POST "http://127.0.0.1:8000/audit" \
   "message": "Audit completed successfully.",
   "workflow_status": "completed",
   "problem_type": "classification",
-  "audit_score": 82.5,
+  "audit_score": {
+    "score": 82.5,
+    "readiness": "needs_review"
+  },
   "human_review_required": false,
-  "best_model": "Logistic Regression"
+  "baseline_results": {
+    "best_model": {
+      "model_name": "Logistic Regression"
+    }
+  }
 }
 ```
 
@@ -294,16 +349,18 @@ curl -X POST "http://127.0.0.1:8000/audit" \
 ```json
 {
   "message": "Audit paused for human review.",
-  "workflow_status": "paused_for_human_review",
+  "workflow_status": "waiting_for_human_approval",
   "human_review_required": true,
   "human_review": {
+    "requires_human_review": true,
     "review_items": [
       {
-        "id": "leakage_001",
-        "risk_type": "possible_leakage",
-        "risk_level": "high",
+        "id": "risk_001",
+        "category": "leakage",
+        "severity": "high",
         "column": "Total",
-        "reason": "Column name appears target-like or outcome-related."
+        "reason": "Column name appears target-like or outcome-related.",
+        "suggested_decision": "review_before_modeling"
       }
     ]
   }
@@ -348,7 +405,7 @@ curl -X POST "http://127.0.0.1:8000/audit/summary" \
 
 Runs the deterministic audit checks and stops at the Human Review Gate.
 
-Use this endpoint when you want explicit reviewer approval before metric recommendation, preprocessing, baseline models, MLflow, SHAP, and final report generation.
+Use this endpoint when you want explicit reviewer approval before metric recommendation, preprocessing, baseline models, MLflow, explainability, and final report generation.
 
 ### Request
 
@@ -363,18 +420,19 @@ curl -X POST "http://127.0.0.1:8000/audit/review-gate" \
 ```json
 {
   "message": "Human review gate completed.",
-  "workflow_status": "paused_for_human_review",
+  "workflow_status": "waiting_for_human_approval",
   "target_column": "Grade",
   "problem_type": "classification",
   "human_review": {
-    "required": true,
+    "requires_human_review": true,
     "review_items": [
       {
         "id": "risk_001",
-        "risk_type": "possible_leakage",
-        "risk_level": "high",
+        "category": "leakage",
+        "severity": "high",
         "column": "Total",
-        "reason": "Column may contain information derived from the target."
+        "reason": "Column may contain information derived from the target.",
+        "suggested_decision": "review_before_modeling"
       }
     ],
     "allowed_decisions": [
@@ -468,7 +526,7 @@ curl -X POST "http://127.0.0.1:8000/audit/after-human-approval" \
 ```json
 {
   "message": "Audit completed after human approval.",
-  "workflow_status": "completed",
+  "workflow_status": "continue_to_modeling",
   "human_review": {
     "final_decision": "approved"
   },
@@ -476,13 +534,18 @@ curl -X POST "http://127.0.0.1:8000/audit/after-human-approval" \
   "metric_recommendation": {
     "primary_metric": "macro_f1"
   },
-  "best_model": "Logistic Regression",
-  "mlflow": {
+  "baseline_results": {
+    "best_model": {
+      "model_name": "Logistic Regression"
+    }
+  },
+  "mlflow_tracking": {
     "enabled": true,
     "status": "logged"
   },
   "explainability": {
-    "status": "completed"
+    "enabled": true,
+    "available": true
   },
   "report": {
     "format": ["markdown", "json"]
@@ -502,7 +565,7 @@ If the final human decision is rejected or needs a data fix, the workflow should
 3. GET /human-review/decision-template
 4. Fill reviewer decision JSON
 5. POST /audit/after-human-approval
-6. Continue to metric recommendation, baseline models, MLflow, SHAP, and final report
+6. Continue to metric recommendation, baseline models, MLflow, explainability, and final report
 ```
 
 This flow is recommended for production-like review behavior because it makes the human decision explicit.
@@ -519,16 +582,19 @@ problem_type
 data_quality
 leakage
 class_imbalance
-risk_summary
-workflow_decision
+risk_aggregator
+decision_router
+workflow_status
 human_review
 metric_recommendation
 preprocessing
-baseline_models
-mlflow
+baseline_results
+mlflow_tracking
 explainability
-report
+llm_report
+audit_report
 downloads
+execution_summary
 ```
 
 Exact fields may vary depending on:
@@ -629,6 +695,28 @@ Swagger UI supports:
 
 ---
 
+## Docker API Usage
+
+If running the Docker image:
+
+```bash
+docker run --rm \
+  --name agentic-audit-copilot \
+  -p 8501:8501 \
+  -p 8000:8000 \
+  -e GROQ_API_KEY="your_groq_api_key" \
+  shivamrajput130/agentic-ml-audit-copilot:v1.1.0
+```
+
+Then open:
+
+```text
+FastAPI Docs: http://localhost:8000/docs
+Health:       http://localhost:8000/health
+```
+
+---
+
 ## Performance Notes
 
 The current API is designed for local and demo-scale tabular datasets.
@@ -711,4 +799,4 @@ Planned improvements:
 
 The FastAPI service exposes the audit workflow through a clear set of system, audit, and human review endpoints.
 
-It supports both simple audit usage and a more controlled human-in-the-loop workflow where risky datasets are reviewed before baseline modeling, MLflow tracking, SHAP explainability, and report generation.
+It supports both simple audit usage and a more controlled human-in-the-loop workflow where risky datasets are reviewed before baseline modeling, MLflow tracking, explainability, and report generation.

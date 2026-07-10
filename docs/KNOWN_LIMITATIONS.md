@@ -6,7 +6,7 @@
 
 The project intentionally focuses on deterministic, reproducible, and modular ML auditing. It does not try to support every possible ML workflow in the first release.
 
-This document explains the current limitations and future improvement areas.
+This document explains the current limitations and future improvement areas for the `v1.1.0` release.
 
 ---
 
@@ -43,7 +43,9 @@ Current limitations:
 - Pandas-based processing
 - Single-machine execution
 - Memory usage depends on dataset size and number of columns
+- High-cardinality categorical features can increase preprocessing time
 - SHAP computation may be slow for larger datasets
+- Very large uploads may exceed configured limits or available memory
 
 Future improvements may include:
 
@@ -52,6 +54,7 @@ Future improvements may include:
 - Chunk-based processing
 - Out-of-core execution
 - Performance benchmarks
+- Background job execution for long audits
 
 ---
 
@@ -103,11 +106,13 @@ The Human Review Gate is designed to make risk decisions explicit.
 
 Current limitations:
 
-- Human review decisions are passed through the current request flow
+- Human review decisions are passed through the current request/session flow
 - No persistent reviewer account system
 - No approval history database
 - No role-based approval workflow
 - No multi-reviewer sign-off
+- No enterprise approval audit trail
+- Stateless API continuation requires resubmitting the dataset and reviewer decision payload
 
 Future improvements may include:
 
@@ -116,6 +121,7 @@ Future improvements may include:
 - Approval audit logs
 - Team review workflows
 - Role-based access control
+- Stored review sessions
 
 ---
 
@@ -129,6 +135,7 @@ Current checks include:
 - Near-constant columns
 - High-cardinality columns
 - Identifier-like columns
+- Infinite values
 - Basic outlier checks
 - Basic dataset statistics
 
@@ -140,6 +147,9 @@ Not currently included:
 - Cross-dataset consistency checks
 - Data lineage checks
 - Domain-specific validation rules
+- Automated data correction
+
+The system reports data issues and recommendations, but it does not silently modify the dataset.
 
 ---
 
@@ -153,6 +163,7 @@ Current limitations:
 - Domain-specific business metrics are not inferred automatically
 - Cost-sensitive metrics are not fully supported
 - Ranking, survival, and time-series metrics are not supported
+- Business impact trade-offs must still be decided by the user or reviewer
 
 ---
 
@@ -177,6 +188,8 @@ Current limitations:
 - No neural network training
 - No model registry promotion flow
 - No production model serving workflow
+- No automated model selection for deployment
+- No fairness-aware model optimization
 
 The goal is sanity-check benchmarking, not final model optimization.
 
@@ -186,8 +199,9 @@ The goal is sanity-check benchmarking, not final model optimization.
 
 Current explainability features may include:
 
-- Feature importance
+- Built-in feature importance
 - SHAP summaries when supported
+- Human-readable interpretation notes
 
 Current limitations:
 
@@ -195,6 +209,7 @@ Current limitations:
 - Some model and data combinations may not support SHAP cleanly
 - Explanations are baseline-focused
 - No fairness-specific explanation layer
+- No counterfactual or causal explanation support
 
 Future improvements may include:
 
@@ -203,6 +218,7 @@ Future improvements may include:
 - LIME
 - Counterfactual explanations
 - Fairness-aware explanations
+- Better local explanation views
 
 ---
 
@@ -216,6 +232,7 @@ Current limitations:
 - Remote MLflow server configuration is not automated
 - Model registry workflow is not fully implemented
 - No automatic model promotion or approval lifecycle
+- Docker container runs the app services, while MLflow UI is usually inspected separately in local development
 
 Future improvements may include:
 
@@ -223,12 +240,13 @@ Future improvements may include:
 - Model registry integration
 - Experiment comparison dashboard
 - Artifact storage configuration
+- Model approval lifecycle
 
 ---
 
 ## Streamlit Dashboard
 
-The Streamlit dashboard is designed for local usage, demos, and portfolio presentation.
+The Streamlit dashboard is designed for local usage, demos, Streamlit Cloud deployment, and portfolio presentation.
 
 Current limitations:
 
@@ -238,6 +256,8 @@ Current limitations:
 - No persistent project history
 - No multi-user review queue
 - No cloud-native session storage
+- Session state may reset after refresh or redeployment
+- Large datasets may make the dashboard slower
 
 ---
 
@@ -254,8 +274,10 @@ Not currently included:
 - Request throttling
 - Role-based access control
 - Tenant isolation
+- Persistent user identity
+- Production-grade request audit logs
 
-Production deployments should add authentication, authorization, monitoring, rate limiting, and secure secret management.
+Production deployments should add authentication, authorization, monitoring, rate limiting, request logging, and secure secret management.
 
 ---
 
@@ -273,6 +295,8 @@ Not currently included:
 - Email delivery
 - Scheduled reports
 - Report version history
+- Signed approval reports
+- Shareable report links
 
 Future improvements may include:
 
@@ -280,6 +304,7 @@ Future improvements may include:
 - HTML export
 - Shareable report links
 - Report templates
+- Versioned audit reports
 
 ---
 
@@ -298,6 +323,7 @@ The LLM does not:
 - Confirm leakage
 - Approve risky datasets
 - Replace human judgment
+- Replace security or governance review
 
 All deterministic ML operations are performed using Python and scikit-learn.
 
@@ -317,31 +343,50 @@ Current testing scope includes:
 - Baseline models
 - Metric recommendation
 - Profiler behavior
+- Workflow helper behavior
+- FastAPI behavior
+- JSON-safe response helpers
 
 Future improvements may include:
 
-- FastAPI integration tests
+- Broader FastAPI integration tests
 - Streamlit UI tests
 - Docker validation tests
 - End-to-end workflow tests
 - Performance benchmarks
 - Load testing
+- Regression tests for larger datasets
 
 ---
 
 ## Deployment
 
-The project includes Docker support.
+The project includes Docker and Streamlit Cloud deployment support.
 
 Current limitations:
 
-- Single-container local deployment focus
+- Single-container local Docker deployment focus
 - No Kubernetes manifests
 - No Helm charts
 - No cloud deployment templates
 - No autoscaling setup
 - No centralized monitoring setup
 - No production-grade logging stack
+- Streamlit Cloud deployment is dashboard-focused and does not expose the full Docker runtime
+
+Docker currently runs:
+
+```text
+FastAPI:   8000
+Streamlit: 8501
+```
+
+Published Docker images:
+
+```text
+shivamrajput130/agentic-ml-audit-copilot:latest
+shivamrajput130/agentic-ml-audit-copilot:v1.1.0
+```
 
 Future improvements may include:
 
@@ -350,6 +395,24 @@ Future improvements may include:
 - Monitoring and alerting
 - Centralized logging
 - Health-based autoscaling
+- Background worker architecture
+
+---
+
+## Data Privacy
+
+The project is intended for learning, local demos, and portfolio-style evaluation.
+
+Current limitations:
+
+- No enterprise data governance layer
+- No dataset retention policy
+- No automatic redaction of sensitive fields
+- No PII detection module
+- No encryption-at-rest configuration
+- No multi-tenant isolation
+
+Users should avoid uploading confidential, regulated, or sensitive datasets to public demo deployments.
 
 ---
 
@@ -369,6 +432,9 @@ Before production use, consider adding:
 - Infrastructure hardening
 - Backup and recovery strategy
 - Compliance review
+- Vulnerability scanning
+- Container image scanning
+- Dependency security scanning
 
 ---
 
@@ -396,6 +462,6 @@ Planned improvement areas:
 
 Agentic ML Audit Copilot provides a deterministic-first workflow for auditing tabular ML datasets before baseline modeling.
 
-The current version focuses on CSV-based tabular classification and regression workflows, human review, baseline benchmarking, MLflow tracking, explainability, FastAPI, Streamlit, and report generation.
+The current version focuses on CSV-based tabular classification and regression workflows, human review, baseline benchmarking, MLflow tracking, explainability, FastAPI, Streamlit, Docker, Streamlit Cloud deployment, and report generation.
 
 Advanced enterprise features are intentionally outside the current scope, but the modular architecture is designed so they can be added in future releases.
